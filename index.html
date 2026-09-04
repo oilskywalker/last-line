@@ -200,7 +200,7 @@ kbd{background:#142420;border:1px solid #33513f;border-bottom-width:2px;border-r
 .mscreen{display:flex;flex-direction:column;align-items:flex-start;gap:12px;pointer-events:auto;animation:mfade .25s}
 .mscreen[hidden]{display:none}
 @keyframes mfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.mbtn{pointer-events:auto;width:290px;padding:14px 0;font-family:inherit;font-size:15px;letter-spacing:4px;font-weight:800;
+.mbtn{pointer-events:auto;width:min(290px,82vw);padding:14px 0;font-family:inherit;font-size:15px;letter-spacing:4px;font-weight:800;
   color:#cdeadd;background:linear-gradient(180deg,#172620,#0d1713);border:1px solid #2c4a3a;border-radius:6px;cursor:pointer;transition:.12s}
 .mbtn:hover{border-color:#8dffbe;color:#eafff4;background:linear-gradient(180deg,#20362b,#132019);transform:translateY(-1px)}
 .mbtn.primary{color:#04120b;background:linear-gradient(180deg,#8dffbe,#2ec46f);border:0;box-shadow:0 0 30px rgba(61,220,132,.35)}
@@ -283,7 +283,7 @@ kbd{background:#142420;border:1px solid #33513f;border-bottom-width:2px;border-r
 .mpnote code{color:#ffbe63;background:#0c1714;padding:1px 5px;border-radius:3px}
 .lobmid{display:flex;flex-direction:column;gap:5px}
 .lobmaphd{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#7ea294}
-#lobMap{width:320px;height:200px;border:1px solid #2d4539;border-radius:8px;background:#0e1a15;cursor:pointer;display:block}
+#lobMap{width:min(320px,86vw);height:auto;aspect-ratio:8/5;border:1px solid #2d4539;border-radius:8px;background:#0e1a15;cursor:pointer;display:block}
 .lobwrap{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin:6px 0 14px;text-align:left}
 .lobslots{display:flex;flex-direction:column;gap:7px;width:300px}
 .lobslot{display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #2d4539;border-radius:7px;background:#0e1a15}
@@ -353,7 +353,27 @@ html.touch #hint{bottom:210px}
   #cmd{width:min(56vw,260px)}
   #cmd .btn{height:50px}
   #miniwrap{transform:scale(.5)}
+  .mtitle{font-size:34px}.msub{font-size:11px}
+  #menu{padding:0 14px 0 20px;justify-content:flex-start;padding-top:12px;overflow-y:auto}
+  .lobmid #lobMap{width:min(320px,80vw)}
+  .segb button{padding:6px 10px}
+  .numb input{width:56px}
+  #fsbtn{width:40px;height:40px;font-size:18px}
 }
+/* short landscape phones: let the menu/lobby scroll instead of clipping */
+@media (pointer:coarse) and (max-height:460px){
+  #menu{justify-content:flex-start;padding-top:10px;overflow-y:auto}
+  .mtitle{font-size:32px;margin-top:2px}
+  .lobwrap{gap:8px}
+}
+
+/* ---------- fullscreen button ---------- */
+#fsbtn{position:fixed;top:10px;left:10px;z-index:60;width:44px;height:44px;border-radius:11px;
+  background:rgba(12,22,18,.9);border:1.5px solid #2f4a3e;color:#8dffbe;font-size:20px;line-height:1;
+  display:none;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+#fsbtn:hover{border-color:#8dffbe}
+html.touch #fsbtn{display:flex}
+body:fullscreen #fsbtn,body:-webkit-full-screen #fsbtn{color:#ffd27a}
 #intel{position:absolute;display:none;z-index:26;max-width:250px;pointer-events:none;padding:8px 10px;
   background:linear-gradient(180deg,rgba(28,16,14,.96),rgba(16,9,8,.96));border:1px solid #7a3a2a;border-radius:5px;
   color:#e9d9cf;font-size:11px;line-height:1.35;box-shadow:0 4px 14px rgba(0,0,0,.5)}
@@ -422,6 +442,7 @@ window.__FB_CONFIG = /*FBCONFIG*/{
 </script>
 </head>
 <body>
+<button id="fsbtn" title="Fullscreen" aria-label="Fullscreen">⛶</button>
 <canvas id="cv"></canvas>
 <div id="veil"></div>
 <div id="dmgflash"></div>
@@ -10024,16 +10045,16 @@ function lobbyJoin(code) {
   bindRoom(); NET.join(LOBBY.code); openLobby();
   // in a real transport the host adds our seat on receiving a join; locally there is no host tab
 }
-function seat(id, name, spawn) { return { id, name, team: 'ABCDEF'[spawn || 0] === undefined ? 'A' : 'ABCD'[(spawn || 0) % 4], spawn: spawn || 0, ready: false, loaded: 0 }; }
+function seat(id, name, spawn) { return { id, name, team: 'ABCDEF'[spawn || 0] === undefined ? 'A' : 'ABCD'[(spawn || 0) % 4], spawn: spawn || 0, ready: false, loaded: 0, t: Date.now() }; }
 function playerName() { try { return localStorage.getItem('ll_name') || ('Cmdr-' + (Math.random() * 900 + 100 | 0)); } catch (e) { return 'Cmdr'; } }
 const mySeat = () => LOBBY.room && LOBBY.room.seats.find(s => s.id === LOBBY.myId);
 const amHost = () => LOBBY.room && LOBBY.room.hostId === LOBBY.myId;
 
 function bindRoom() {
-  NET.onRoom(r => { if (!r) return; LOBBY.room = r; if (LOBBY.stage === 'loading') renderLoad(); else renderLobby(); if (r.started && LOBBY.stage !== 'loading' && LOBBY.stage !== 'game') beginLoading(); });
+  NET.onRoom(r => { if (!r) return; LOBBY.room = r; if (LOBBY.stage === 'loading') { renderLoad(); tryStartMatch(); } else renderLobby(); if (r.started && LOBBY.stage !== 'loading' && LOBBY.stage !== 'game') beginLoading(); });
   NET.onCmd(c => { if (c.t === 'ready') { const st = LOBBY.room.seats.find(s => s.id === c.id); if (st) { st.ready = c.v; if (amHost()) NET.publishRoom(LOBBY.room); } renderLobby(); }
     else if (c.t === 'join' && amHost()) { if (LOBBY.room.seats.length < 6 && !LOBBY.room.seats.find(s => s.id === c.id)) { LOBBY.room.seats.push(seat(c.id, c.name, LOBBY.room.seats.length)); NET.publishRoom(LOBBY.room); } }
-    else if (c.t === 'loaded') { const st = LOBBY.room.seats.find(s => s.id === c.id); if (st) { st.loaded = c.v; if (amHost()) NET.publishRoom(LOBBY.room); } renderLoad(); }
+    else if (c.t === 'loaded') { const st = LOBBY.room.seats.find(s => s.id === c.id); if (st) { st.loaded = c.v; if (amHost()) NET.publishRoom(LOBBY.room); } renderLoad(); tryStartMatch(); }
     else if (c.t === 'seat') { const st = LOBBY.room.seats.find(s => s.id === c.id); if (st) { if (c.team) st.team = c.team; if (c.spawn !== undefined) st.spawn = c.spawn; if (c.name) st.name = c.name; if (amHost()) NET.publishRoom(LOBBY.room); } renderLobby(); }
     else if (c.t === 'begin') beginLoading(); });
 }
@@ -10200,16 +10221,25 @@ function firebaseTransport(db) {
       myPresRef = presRef.child(LOBBY.myId); myPresRef.set(Date.now()); myPresRef.onDisconnect().remove();
       roomRef.on('value', s => { const v = s.val(); if (v) NET._emitRoom(v); });
       cmdRef.on('child_added', s => { const c = s.val(); if (c && (c._n || 0) > lastCmd) { lastCmd = c._n; NET._emitCmd(c); } });
-      // when the presence set changes, keep the seat list in sync and CLEAR the whole room once the last player leaves
+      // when the presence set changes, keep the seat list in sync and CLEAR the whole room once the last player leaves.
+      // ONLY the host ever rewrites the seat list here — a fresh joiner can momentarily see just its own presence
+      // (the host's presence hasn't propagated into its local cache yet), and must never nuke the room from that.
       presRef.on('value', s => {
         const online = s.val() || {}; presCount = Object.keys(online).length;
         if (presCount === 0) { base.remove(); return; }                 // nobody left → wipe the match data
-        // whoever is online drops seats whose players have gone offline (host authority, or the lone survivor)
-        if (LOBBY.room && (amHost() || presCount === 1)) {
-          const before = LOBBY.room.seats.length;
-          LOBBY.room.seats = LOBBY.room.seats.filter(seat => online[seat.id] || seat.id === LOBBY.myId);
-          if (!LOBBY.room.seats.some(x => x.id === LOBBY.room.hostId)) LOBBY.room.hostId = LOBBY.myId;   // host left → I take over
-          if (LOBBY.room.seats.length !== before) roomRef.set(LOBBY.room);
+        const room = LOBBY.room; if (!room) return;
+        const hostOnline = !!online[room.hostId];
+        // host promotion only when the real host is genuinely gone: successor = smallest-id seat that is still online
+        if (!hostOnline) {
+          const successor = room.seats.filter(x => online[x.id]).map(x => x.id).sort()[0];
+          if (successor && successor === LOBBY.myId) room.hostId = LOBBY.myId;
+        }
+        // the host (and only the host) prunes seats whose players are offline — but keeps any seat added within the
+        // join grace window, so a just-joined player whose presence snapshot is still in flight is never evicted
+        if (room.hostId === LOBBY.myId) {
+          const now = Date.now(), before = room.seats.length;
+          room.seats = room.seats.filter(seat => online[seat.id] || (now - (seat.t || 0) < 6000));
+          if (room.seats.length !== before || !hostOnline) roomRef.set(room);
         }
       });
       // last writer standing removes the room on graceful disconnect too
@@ -10351,6 +10381,17 @@ function attachFirebaseIfPresent() {
   /* block browser gestures (double-tap zoom, pull-to-refresh) over the game */
   document.addEventListener('gesturestart', e => e.preventDefault());
   cv.addEventListener('dblclick', e => e.preventDefault());
+
+  /* fullscreen toggle (great on phones — hides the browser chrome) */
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  function toggleFullscreen() {
+    const d = document, el = d.documentElement;
+    if (!fsEl()) { const rq = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen; if (rq) { try { const p = rq.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) {} } if (screen.orientation && screen.orientation.lock) { try { screen.orientation.lock('landscape').catch(() => {}); } catch (e) {} } }
+    else { const ex = d.exitFullscreen || d.webkitExitFullscreen; if (ex) { try { ex.call(d); } catch (e) {} } }
+  }
+  const fsb = document.getElementById('fsbtn');
+  if (fsb) { fsb.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); toggleFullscreen(); }, { passive: false }); fsb.addEventListener('click', e => { e.stopPropagation(); toggleFullscreen(); }); }
+  window.toggleFullscreen = toggleFullscreen;
 })();
 </script>
 </body>
