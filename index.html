@@ -2340,6 +2340,11 @@ const BDEF = {
     col: ['#4a4740', '#35332e'], roof: '#5b5850', light: 165, produces: ['humvee', 'stryker', 'abrams'], needs: 'barracks',
     desc: 'Assembles the Humvee, Stryker and M1 Abrams. Requires a Barracks.'
   },
+  refinery: {
+    name: 'Scrap Refinery', key: 'R', g: '♻️', w: 3, h: 3, hgt: 56, hp: 900, armor: 2, cost: { s: 200, c: 40 }, time: 20,
+    col: ['#4a4238', '#332e28'], roof: '#5b5245', light: 120, scrapGen: 3,
+    desc: 'Smelts salvage into scrap around the clock — a steady ◆ income with no walking over drops. Reinforce it (Mk 2 / Mk 3) to raise the yield; every refinery stacks.'
+  },
   turret: {
     name: 'MG Nest', key: 'G', g: '🎯', w: 2, h: 2, hgt: 34, hp: 540, armor: 3, cost: { s: 120, c: 60 }, time: 12,
     col: ['#3d4438', '#2b3128'], roof: '#4b5443', light: 90,
@@ -4047,7 +4052,7 @@ function killZed(z, ang) {
     areaDamage(z.x, z.y, z.def.burst.r, z.def.burst.dmg, true);
   }
   const amt = Math.round(z.def.scrap * (1 + G.wave * .02));
-  G.pickups.push({ x: z.x + rnd(-8, 8), y: z.y + rnd(-8, 8), amt, life: 40, bob: rnd(TAU) });
+  G.scr += amt; popText(z.x, z.y - 18, '+' + amt + ' ◆', '#9fe6c0');   // kill pays scrap straight into your stockpile — no walking over drops
 }
 
 function killUnit(u) {
@@ -4774,8 +4779,22 @@ function myAllies() { const t = myTeam(); return G.players.map((p, i) => ({ p, i
    ================================================================================ */
 const NP = {
   on: false, host: true, sendT: 0.3, SEND: 0.18,
-  peers: {}, peerG: {}, zG: new Map(), dmgOut: {}
+  peers: {}, peerG: {}, zG: new Map(), dmgOut: {}, shots: []
 };
+
+/* record one of my units'/turrets' shots so allies can render the tracer */
+function npRecordShot(src, tgt, wep, m) {
+  if (!NP.on || !src || src.remote || !tgt) return;
+  if (src.kind !== 'unit' && src.kind !== 'build') return;
+  if ((src.owner || 0) !== G.me) return;
+  if (NP.shots.length > 60 || (wep.kind === 'mortar')) return;
+  const a = Math.atan2(tgt.y - m.y, tgt.x - m.x);
+  NP.shots.push([Math.round(m.x), Math.round(m.y), Math.round(a * 100), Math.round(wep.spd || 900)]);
+}
+/* spawn a visual-only tracer for an ally's shot (no collision, no damage) */
+function npGhostBullet(x, y, a, spd) {
+  G.bullets.push({ x, y, px: x, py: y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, dmg: 0, kind: 'bullet', life: .5, ang: a, team: 1, src: null, z: 9, z0: 9, zg: 9, ghost: true });
+}
 
 function npStart() {
   NP.on = !!(G.mp && typeof NET !== 'undefined' && NET.transport && typeof LOBBY !== 'undefined' && LOBBY.room);
@@ -4802,7 +4821,9 @@ function broadcastState() {
     const Z = [];
     for (const z of G.zeds) { if (z.dead || z.remote || z.def.struct || z.def.worker) continue; Z.push([z.id, z.t, Math.round(z.x), Math.round(z.y), Math.round((z.ang || 0) * 100), Math.round(z.hp)]); }
     snap.z = Z;
-  } else if (Object.keys(NP.dmgOut).length) { snap.dmg = NP.dmgOut; NP.dmgOut = {}; }
+  }
+  if (!NP.host && Object.keys(NP.dmgOut).length) { snap.dmg = NP.dmgOut; NP.dmgOut = {}; }
+  if (NP.shots.length) { snap.f = NP.shots; NP.shots = []; }   // my gunfire this interval, for allies to draw
   NET.publishState(snap);
 }
 
@@ -4841,6 +4862,8 @@ function reconcilePeer(pid, snap) {
 
   // I'm the host: apply the damage this client's units dealt to my enemies (it decides nothing; I do)
   if (NP.host && snap.dmg) { for (const k in snap.dmg) { const z = G.zeds.find(q => !q.remote && q.id == k); if (z) damage(z, snap.dmg[k], 0, { net: true }); } }
+  // draw this ally's gunfire as tracers
+  if (snap.f) for (const s of snap.f) npGhostBullet(s[0], s[1], (s[2] || 0) / 100, s[3] || 900);
 }
 
 function removePeer(pid) {
@@ -5819,6 +5842,7 @@ function muzzlePos(u) {
 
 function fire(src, tgt, wep, muz) {
   const m = muz || muzzlePos(src);
+  if (typeof npRecordShot === 'function') npRecordShot(src, tgt, wep, m);   // co-op: let allies see this shot
   // fire out of the airframe, not the ground shadow: the aircraft is drawn at
   // screen height alt*VY (see drawAircraft), so muzzle/tracers must start there.
   const srcZ = (src.def && src.def.fly) ? (src.def.alt || 150) * VY : 0;
@@ -6069,6 +6093,7 @@ function updateBuildings(dt) {
       continue;
     }
     b.builders = 0;
+    if (b.def.scrapGen) G.scr += b.def.scrapGen * (b.tier || 1) * dt;   // scrap refinery income — scales with its upgrade tier
 
     if (b.q.length) {
       const it = b.q[0];
@@ -6082,8 +6107,9 @@ function updateBuildings(dt) {
           if (it.t === 'kevlar' || it.t === 'composite') for (const u of G.units) { const st = unitStats(u.t); const f = u.hp / u.maxHp; u.maxHp = st.hp; u.hp = st.hp * f; u.armor = st.armor; }
         } else {
           const ex = Math.max(b.w, b.h) * TS * .5 + 26;
-          const a = rnd(TAU);
-          const u = spawnUnit(it.t, b.x + Math.cos(a) * ex, b.y + Math.sin(a) * ex, true);
+          // spawn in FRONT of the building — toward the rally point if one is set, otherwise the building's front
+          const a = b.rally ? Math.atan2(b.rally.y - b.y, b.rally.x - b.x) : Math.PI / 2;
+          const u = spawnUnit(it.t, b.x + Math.cos(a) * ex + rnd(-8, 8), b.y + Math.sin(a) * ex + rnd(-8, 8), true);
           unstick(u, true);
           if (b.rally) u.order = { type: 'move', x: b.rally.x, y: b.rally.y };
           alertMsg(UDEF[it.t].name + ' ready', 'good');
@@ -6137,6 +6163,7 @@ function updateBuildings(dt) {
 function updateBullets(dt) {
   for (let i = G.bullets.length - 1; i >= 0; i--) {
     const b = G.bullets[i];
+    if (b.ghost) { b.px = b.x; b.py = b.y; b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt; if (b.life <= 0) G.bullets.splice(i, 1); continue; }   // ally tracer — visual only, no collision/damage
 
     /* ---- lobbed shell: parabolic flight to a fixed impact point ---- */
     if (b.kind === 'mortar') {
@@ -8540,6 +8567,14 @@ function cardFor() {
       const rdy = G.dropT < 40;
       btns.push({ g: '🪂', n: 'Emergency Drop', k: 'D', cost: { s: 0, c: 60 }, tip: 'Immediate 3-crate supply drop near the command post.', dis: G.scr < 60, fn: () => { if (G.scr < 60) { AU.ui('no'); return; } G.scr -= 60; callAirdrop(true); } });
     }
+    if (bld.t === 'hq') {
+      const me = G.players[G.me];
+      btns.push({
+        g: '⇄', n: 'Refine 50▲ → 10◆', k: 'C', tip: 'Trade 50 supply for 10 scrap (5 : 1).',
+        dis: !me.unlim.sup && me.sup < 50,
+        fn: () => { if (!me.unlim.sup && me.sup < 50) { AU.ui('no'); return; } if (!me.unlim.sup) me.sup -= 50; me.scr += 10; popText((G.hq || bld).x, (G.hq || bld).y - 18, '+10 ◆', '#9fe6c0'); AU.ui('ok'); refreshCard(true); }
+      });
+    }
     if (d.garrison) btns.push({ g: '🚪', n: 'Unload', k: 'U', tip: 'Empty the culvert.', dis: !bld.gar.length, fn: () => unload(bld) });
     if (!d.noMove) btns.push({ g: '📦', n: 'Relocate', k: 'V', tip: 'Pack the structure up and rebuild it somewhere else. It comes back at half strength and has to finish construction again.', fn: () => beginRelocate(bld) });
     btns.push({ g: '🛠️', n: 'Sell', k: 'Del', tip: 'Demolish for half the supply back.', fn: () => { G.sup += (d.cost.s || 0) * .5; G.scr += (d.cost.c || 0) * .5; destroyBuilding(bld); } });
@@ -9516,6 +9551,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       g.userData.wins = win;
       if (b.t === 'hq') { g.add(cyl(.02, .02, 2.0, TRACK, w * .35, ht + 1.0, -h * .3, 'y')); g.add(box(.3, .18, .02, matFor('#b23030'), w * .35 + .16, ht + 1.85, -h * .3)); g.add(box(w * .3, .3, h * .3, roof, -w * .2, ht + .25, h * .15)); const dish = shadowed(new THREE.Mesh(new THREE.SphereGeometry(.35, 12, 8, 0, TAU, 0, .8), matFor('#d8dce0', { side: THREE.DoubleSide }))); dish.position.set(w * .25, ht + .3, h * .25); dish.rotation.x = -.9; g.add(dish); for (let i = 0; i < 2; i++) g.add(box(.35, .25, .35, matFor('#7a8088', PANEL), -w * .3 + i * .5, ht + .24, -h * .3)); }
       if (b.t === 'vbay') { g.add(box(w * .6, ht * .72, .06, matFor('#c9a33d', { map: TEX.roof }), 0, ht * .36, h * .48 + .04)); g.add(box(w * .9, .1, .12, matFor('#8a8f94', PANEL), 0, ht * .95, h * .48 + .1)); for (let i = 0; i < 3; i++) g.add(cyl(.12, .12, .34, matFor(i ? '#8a3a2a' : '#4a5a30', { map: TEX.panel }), -w * .45 - .2, .17, -h * .3 + i * .3, 'y')); }
+      if (b.t === 'refinery') { for (let i = 0; i < 2; i++) g.add(cyl(.32, .32, ht * .8, matFor(i ? '#6a7250' : '#7a6a4a', PANEL), -w * .28 + i * w * .56, ht * .4, -h * .26, 'y')); g.add(cyl(.14, .16, ht * 1.6, matFor('#3a352c', CONC), w * .34, ht * .8, h * .26, 'y')); g.add(cyl(.17, .14, .18, matFor('#2a2620'), w * .34, ht * 1.6, h * .26, 'y')); g.add(box(w * .5, ht * .22, h * .3, matFor('#5a5040', PANEL), 0, ht * .5, h * .18)); for (let i = 0; i < 4; i++) g.add(cyl(.02, .02, .5, matFor('#8a8f94'), -w * .3 + i * .2, ht + .25, h * .1, 'x')); }
     }
     g.position.set(b.x * K, groundY(b.x, b.y), b.y * K);
     scene3.add(g); return { g, wins: g.userData.wins, gun: g.userData.gun };
