@@ -7894,6 +7894,7 @@ function unitUpgradeCost(cat, tier) {
 
 let lastAlert = '', lastAlertT = 0;
 function alertMsg(txt, cls) {
+  return;   // on-screen alert toasts removed by request (they blocked the view); gameOver/victory banners are separate
   if (txt === lastAlert && G.t - lastAlertT < 2.5) return;
   lastAlert = txt; lastAlertT = G.t;
   const d = document.createElement('div');
