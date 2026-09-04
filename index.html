@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>LAST LINE — Zombie Defense</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#05070a;color:#dcefe3;
   font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,"DejaVu Sans Mono",monospace;
-  -webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+  -webkit-font-smoothing:antialiased;user-select:none;cursor:default;
+  touch-action:none;overscroll-behavior:none;-webkit-text-size-adjust:100%;text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
 #cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 #hud{position:absolute;inset:0;pointer-events:none;z-index:5}
 .pan{pointer-events:auto;background:linear-gradient(180deg,rgba(13,20,23,.96),rgba(8,13,15,.985));
@@ -334,6 +335,11 @@ html.touch #mtools{display:flex}
 .mtl.on .tg{color:#8dffbe}
 .mtl.dim{opacity:.4}
 html.touch #hint{bottom:210px}
+/* keep every floating panel fully on-screen on phones: cap size and let tall content scroll instead of spilling off-screen */
+html.touch #cmd{max-width:calc(100vw - 16px);max-height:56vh;overflow-y:auto}
+html.touch #sel{max-width:calc(100vw - 16px);max-height:42vh;overflow-y:auto}
+html.touch #bpop{max-width:calc(100vw - 12px);max-height:calc(100vh - 12px)}
+html.touch #miniwrap{max-width:calc(100vw - 16px)}
 @media (pointer:coarse){
   #devtoggle,#fps{display:none}
 }
@@ -370,6 +376,11 @@ html.touch #hint{bottom:210px}
   #menu{justify-content:flex-start;padding-top:10px;overflow-y:auto}
   .mtitle{font-size:32px;margin-top:2px}
   .lobwrap{gap:8px}
+  #mtools{gap:6px}
+  #mtools .mtl{width:46px;height:46px}
+  #mtools .mtl .tg{font-size:18px}
+  #cmd .btn{height:44px}
+  #cmd{max-height:64vh}
 }
 
 /* ---------- fullscreen button ---------- */
@@ -385,7 +396,7 @@ body:fullscreen #fsbtn,body:-webkit-full-screen #fsbtn{color:#ffd27a}
 #intel b{color:#ffb38f;font-size:12px;letter-spacing:.3px}
 #intel .ist{color:#c99;font-size:9.5px;margin:2px 0 4px;font-family:ui-monospace,monospace}
 #intel .iinfo{color:#d8c8bd}
-#bpop{position:absolute;display:none;z-index:25;width:322px;pointer-events:auto;padding:9px 11px;
+#bpop{position:absolute;display:none;z-index:25;width:322px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;pointer-events:auto;padding:9px 11px;
   background:linear-gradient(180deg,rgba(14,22,20,.96),rgba(8,12,11,.96));border:1px solid #2f4a3e;border-radius:6px;
   color:#dfe6ea;font-size:11px;line-height:1.4;box-shadow:0 4px 16px rgba(0,0,0,.55)}
 #bpop b{color:#8dffbe;font-size:13px;letter-spacing:.4px}
@@ -8488,9 +8499,13 @@ function updateBuildPopup() {
     UI.popB = b;
     if (!b) { el.style.display = 'none'; return; }
     const r = cv.getBoundingClientRect(), k = (r.width || 1) / cv.width;
+    el.style.display = 'block';
+    // measure the real rendered size and clamp fully inside the viewport (never off any edge, even on a small phone)
+    const M = 8, pw = el.offsetWidth || 300, ph = el.offsetHeight || 300;
     let px = IN.mx * k + 18, py = IN.my * k + 14;
-    if (px + 340 > innerWidth) px = IN.mx * k - 344; if (py + 330 > innerHeight) py = Math.max(6, innerHeight - 340);
-    el.style.left = px + 'px'; el.style.top = py + 'px'; el.style.display = 'block';
+    px = Math.min(px, innerWidth - pw - M); if (px < M) px = M;
+    py = Math.min(py, innerHeight - ph - M); if (py < M) py = M;
+    el.style.left = px + 'px'; el.style.top = py + 'px';
   }
   if (!b) return;
   const d = b.def, f = clamp(b.hp / b.maxHp, 0, 1);
