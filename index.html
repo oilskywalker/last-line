@@ -2366,38 +2366,38 @@ function enemyDef(t) { return ZDEF[t] || MDEF[t]; }
 /* hgt = extruded height in px for the 3/4 view */
 const BDEF = {
   hq: {
-    name: 'Command Post', key: 'Q', g: '🏛️', w: 4, h: 4, hgt: 84, hp: 3000, armor: 4, cost: { s: 0, c: 0 }, time: 20,
+    name: 'Command Post', key: 'Q', g: '🏛️', w: 7, h: 7, mw: 4, mh: 4, hgt: 84, hp: 3000, armor: 4, cost: { s: 0, c: 0 }, time: 20,
     col: ['#4a5344', '#37402f'], roof: '#5d6a52', light: 210, produces: ['engineer'], ability: 'airdrop', noMove: true,
     desc: 'Your last standing structure. Trains Engineers and calls in emergency supply drops.'
   },
   barracks: {
-    name: 'Barracks', key: 'B', g: '🏚️', w: 3, h: 3, hgt: 64, hp: 950, armor: 2, cost: { s: 150, c: 0 }, time: 16,
+    name: 'Barracks', key: 'B', g: '🏚️', w: 7, h: 7, mw: 3, mh: 3, hgt: 64, hp: 950, armor: 2, cost: { s: 150, c: 0 }, time: 16,
     col: ['#45503c', '#333c2c'], roof: '#57634a', light: 150, produces: ['rifleman', 'support', 'medic', 'gunner', 'marksman', 'sniper', 'rocketeer', 'mortar'],
     desc: 'Trains infantry, supply Support teams, combat Medics, marksmen, snipers and mortar crews. Right-click the map to set a rally point.'
   },
   armory: {
-    name: 'Armory', key: 'Y', g: '⚙️', w: 3, h: 3, hgt: 62, hp: 850, armor: 2, cost: { s: 180, c: 80 }, time: 18,
+    name: 'Armory', key: 'Y', g: '⚙️', w: 7, h: 7, mw: 3, mh: 3, hgt: 62, hp: 850, armor: 2, cost: { s: 180, c: 80 }, time: 18,
     col: ['#3f4a50', '#2c343a'], roof: '#4f5d64', light: 140, research: true,
     desc: 'Unlocks permanent upgrades for weapons, armour, optics and traps.'
   },
   vbay: {
-    name: 'Vehicle Bay', key: 'V', g: '🏭', w: 4, h: 3, hgt: 70, hp: 1250, armor: 3, cost: { s: 260, c: 160 }, time: 24,
+    name: 'Vehicle Bay', key: 'V', g: '🏭', w: 7, h: 5, mw: 4, mh: 3, hgt: 70, hp: 1250, armor: 3, cost: { s: 260, c: 160 }, time: 24,
     col: ['#4a4740', '#35332e'], roof: '#5b5850', light: 165, produces: ['humvee', 'stryker', 'abrams'], needs: 'barracks',
     desc: 'Assembles the Humvee, Stryker and M1 Abrams. Requires a Barracks.'
   },
   refinery: {
-    name: 'Scrap Refinery', key: 'R', g: '♻️', w: 3, h: 3, hgt: 56, hp: 900, armor: 2, cost: { s: 200, c: 40 }, time: 20,
+    name: 'Scrap Refinery', key: 'R', g: '♻️', w: 5, h: 5, mw: 3, mh: 3, hgt: 56, hp: 900, armor: 2, cost: { s: 200, c: 40 }, time: 20,
     col: ['#4a4238', '#332e28'], roof: '#5b5245', light: 120, scrapGen: 3,
     desc: 'Smelts salvage into scrap around the clock — a steady ◆ income with no walking over drops. Reinforce it (Mk 2 / Mk 3) to raise the yield; every refinery stacks.'
   },
   turret: {
-    name: 'MG Nest', key: 'G', g: '🎯', w: 2, h: 2, hgt: 34, hp: 540, armor: 3, cost: { s: 120, c: 60 }, time: 12,
+    name: 'MG Nest', key: 'G', g: '🎯', w: 3, h: 3, mw: 2, mh: 2, hgt: 34, hp: 540, armor: 3, cost: { s: 120, c: 60 }, time: 12,
     col: ['#3d4438', '#2b3128'], roof: '#4b5443', light: 90,
     wep: { dmg: 14, rng: 285, cd: .12, spread: .055, spd: 1100, kind: 'bullet', sfx: 'mg', casings: 1, sustain: true, mag: 100, reload: 3.4 },   // tripod MG: slower than the Humvee's gun, heavier hit
     desc: 'Browning M2 .50 on a tripod. Slow, heavy, and it goes through Brutes.'
   },
   mortarpit: {
-    name: 'Mortar Battery', key: 'O', g: '💥', w: 3, h: 3, hgt: 34, hp: 780, armor: 3, cost: { s: 220, c: 160 }, time: 20, needs: 'armory',
+    name: 'Mortar Battery', key: 'O', g: '💥', w: 5, h: 5, mw: 3, mh: 3, hgt: 34, hp: 780, armor: 3, cost: { s: 220, c: 160 }, time: 20, needs: 'armory',
     col: ['#4a4636', '#332f26'], roof: '#5b5643', light: 80,
     wep: {
       dmg: 95, rng: 1860, minRng: 220, cd: 5.6, spread: 30, kind: 'mortar', splash: 101,
@@ -2406,12 +2406,12 @@ const BDEF = {
     desc: 'Fixed 120mm battery reaching almost 60 tiles. A tighter blast than the old pattern, but the concussion still leaves everything caught in it crawling for several seconds.'
   },
   tower: {
-    name: 'Watchtower', key: 'W', g: '🗼', w: 2, h: 2, hgt: 96, hp: 620, armor: 2, cost: { s: 130, c: 40 }, time: 14,
+    name: 'Watchtower', key: 'W', g: '🗼', w: 3, h: 3, mw: 2, mh: 2, hgt: 96, hp: 620, armor: 2, cost: { s: 130, c: 40 }, time: 14,
     col: ['#4a4a3f', '#33332c'], roof: '#5d5d4e', light: 150, vision: 520, searchlight: true,
     desc: 'Spotting platform with a sweeping searchlight. Every friendly unit and emplacement within its radius sees and shoots as far as the tower does, day or night.'
   },
   airbase: {
-    name: 'Airbase', key: 'P', g: '✈️', w: 5, h: 4, hgt: 40, hp: 1600, armor: 3, cost: { s: 400, c: 260 }, time: 30, needs: 'vbay',
+    name: 'Airbase', key: 'P', g: '✈️', w: 11, h: 9, mw: 5, mh: 4, hgt: 40, hp: 1600, armor: 3, cost: { s: 400, c: 260 }, time: 30, needs: 'vbay',
     col: ['#44483f', '#30332b'], roof: '#565b4c', light: 130, pad: 1,
     produces: ['littlebird1', 'littlebird2', 'blackhawk', 'apache', 'ac130', 'f16'],
     desc: 'Rotary and fixed-wing airpower: Little Birds, the Blackhawk transport, the Apache, the AC-130 gunship and the F-16 strike fighter. Requires a Vehicle Bay.'
@@ -2442,7 +2442,7 @@ const BDEF = {
     desc: 'Buried spikes. Triggers on contact, then re-arms. Incendiary research sets them alight.'
   },
   culvert: {
-    name: 'Culvert', key: 'U', g: '🕳️', w: 3, h: 2, hgt: 20, hp: 900, armor: 5, cost: { s: 140, c: 0 }, time: 12,
+    name: 'Culvert', key: 'U', g: '🕳️', w: 5, h: 3, mw: 3, mh: 2, hgt: 20, hp: 900, armor: 5, cost: { s: 140, c: 0 }, time: 12,
     col: ['#3a3d3a', '#282b28'], roof: '#4a4e4a', garrison: 6, light: 70,
     desc: 'Storm drain bunker. Right-click to move units inside — they fire out with +40% range and take almost nothing.'
   }
@@ -3701,7 +3701,7 @@ function fxSpark(x, y, ang, n, col) {
    starts at the muzzle. The two effects blend into one cloud after the shot.
    Particles render through the VY y-squash, so anything meant to travel along
    the sprite's (un-squashed) barrel angle gets its world y divided by VY. */
-function fxMuzzleDust(vx, vy, ang, ground, jet, muzLen) {
+function fxMuzzleDust(vx, vy, ang, ground, jet, muzLen, muzZ) {
   if (G.parts.length > PMAX * .86) return;
   // low dust rolling out around the vehicle, drifting off on the wind
   if (ground > 0) {
@@ -3714,22 +3714,31 @@ function fxMuzzleDust(vx, vy, ang, ground, jet, muzLen) {
   }
   // barrel-blast jet punched forward from the muzzle, ALONG the barrel axis
   if (jet > 0) {
-    const L = muzLen || 20;
-    const mx = vx + Math.cos(ang) * L, my = vy + Math.sin(ang) * L;   // muzzle on the barrel axis (world space)
+    const L = muzLen || 20, Z = muzZ || 0;
+    const mx = vx + Math.cos(ang) * L, my = vy + Math.sin(ang) * L;   // muzzle on the barrel axis (world space), at the bore's height
     const m = Math.max(6, Math.round(14 * jet));
     for (let i = 0; i < m; i++) {
       const a = ang + rnd(-.138, .138), sp = (i < 3 ? rnd(60, 220) : rnd(200, 864)) * jet;   // a continuous plume: slow gas at the bore, fast punch out front
       part('dust', mx, my, Math.cos(a) * sp, Math.sin(a) * sp,
         rnd(5, 7.5), rnd(8, 12), 'rgba(206,194,168,1)',
-        { z: rnd(1, 7), vz: rnd(2, 9), grow: 24, drag: .84, wind: 1 });
+        { z: Z * .5 + rnd(1, 7), vz: rnd(2, 9), grow: 24, drag: .84, wind: 1 });
     }
     // propellant smoke: a fast, tight cone of hot gas out of the bore that slows hard and then rides the wind
     for (let i = 0; i < m; i++) {
       const a = ang + rnd(-.11, .11), sp = Math.pow(Math.random(), 1.6) * 700 * jet + 40;
       part('smoke', mx, my, Math.cos(a) * sp, Math.sin(a) * sp, rnd(2.2, 4.0), rnd(4, 7) * jet, i < m * .4 ? 'rgba(225,215,195,1)' : 'rgba(150,142,128,1)',
-        { z: rnd(6, 12), vz: rnd(4, 14), g: -10, grow: 30 * jet, drag: .86, wind: 1, a: .6, rot: rnd(TAU), vr: rnd(-1.5, 1.5) });
+        { z: Z + rnd(-4, 6), vz: rnd(4, 14), g: -10, grow: 30 * jet, drag: .86, wind: 1, a: .6, rot: rnd(TAU), vr: rnd(-1.5, 1.5) });
     }
-    part('ring', mx, my, 0, 0, .34, 7 * jet, 'rgba(216,206,182,.6)', { grow: 150 * jet });
+    // bore steam: a white jet of hot vapour blown straight out of the muzzle that balloons, curls up and thins within a couple of seconds
+    const ns = Math.round(10 * jet) + 4;
+    for (let i = 0; i < ns; i++) {
+      const f = i / ns, a = ang + rnd(-.07, .07), sp = (120 + f * 520) * jet;
+      part('smoke', mx + Math.cos(ang) * f * 8, my + Math.sin(ang) * f * 8, Math.cos(a) * sp, Math.sin(a) * sp, rnd(1.0, 2.2), rnd(3, 5) * jet, 'rgba(240,240,236,1)',
+        { z: Z + rnd(-2, 3), vz: rnd(8, 26), g: -26, grow: 42 * jet, drag: .80, wind: 1, a: .8, rot: rnd(TAU), vr: rnd(-3, 3) });
+    }
+    for (let i = 0; i < 3; i++) part('smoke', mx, my, Math.cos(ang) * 40 * jet, Math.sin(ang) * 40 * jet, rnd(.8, 1.4), rnd(2, 4) * jet, 'rgba(250,250,248,1)', { z: Z + rnd(-3, 3), vz: rnd(20, 45), g: -30, grow: 24 * jet, drag: .9, wind: 1, a: .9 });   // wisps curling off the bore itself
+    part('flash', mx, my, 0, 0, .07, 8 * jet, '#ffe0a8', { glow: 1, z: Z });
+    part('ring', mx, my, 0, 0, .34, 7 * jet, 'rgba(216,206,182,.6)', { grow: 150 * jet, z: Z });
   }
 }
 /* A heavy tracked vehicle snaps and scatters any tree/bush it drives over —
@@ -4066,6 +4075,15 @@ function canPlace(t, tx, ty, ignore) {
   return true;
 }
 
+/* fell every tree / bush inside a building's footprint plus `margin` tiles around it (never regrows) */
+function clearTreesAround(b, margin) {
+  const x0 = b.x - (b.w * .5 + margin) * TS, x1 = b.x + (b.w * .5 + margin) * TS, y0 = b.y - (b.h * .5 + margin) * TS, y1 = b.y + (b.h * .5 + margin) * TS;
+  let n = 0;
+  for (let cy = Math.floor(y0 / CH); cy <= Math.floor(y1 / CH); cy++) for (let cx = Math.floor(x0 / CH); cx <= Math.floor(x1 / CH); cx++) {
+    const ps = chunkProps(cx, cy);
+    for (let i = 0; i < ps.length; i++) { const q = ps[i]; if (q.x < x0 || q.x > x1 || q.y < y0 || q.y > y1 || G.deadProps.has(q.id)) continue; G.deadProps.set(q.id, Infinity); if (q.s === 'tree' && n++ < 12) { fxDebris(q.x, q.y, 6, '#6a4a26'); for (let l = 0; l < 4; l++) part('leaf', q.x + rnd(-10, 10), q.y + rnd(-10, 10), rnd(-30, 30), rnd(-30, 30), rnd(.6, 1.2), rnd(1.5, 2.6), l & 1 ? '#4a7030' : '#6a8c3c', { z: rnd(12, 30), vz: rnd(20, 60), g: 200, drag: .95, wind: 1 }); } }
+  }
+}
 function addBuilding(t, tx, ty, done) {
   const d = BDEF[t];
   const b = {
@@ -4081,6 +4099,7 @@ function addBuilding(t, tx, ty, done) {
   G.builds.push(b);
   const idx = G.builds.length;
   for (let y = ty; y < ty + d.h; y++) for (let x = tx; x < tx + d.w; x++) G.gridB[tileIdx(x, y)] = idx;
+  clearTreesAround(b, 1.5);   // the site is cleared: every tree on the footprint and a strip around it comes down for good
   if (d.light) G.lamps.push(b);
   if (d.vision) G.towers.push(b);
   if (t === 'hq') G.hq = b;
@@ -6078,8 +6097,12 @@ function tryFire(u, tgt, dt) {
   else { fire(u, tgt, wep); u.cd = wep.cd * (G.night && !G.up.nvg && !(u.def && u.def.nightSight) ? 1.06 : 1); }
 }
 
+/* vehicle bores in 3D-model units [tip x, height y, model scale multiplier] — the muzzle effect and the round leave the drawn barrel, not the hull centre */
+const VMUZ = { abrams: [2.85, 1.06, 1.68], stryker: [1.875, 1.46, 1.2], humvee: [.75, 1.18, 2.0] };
 function muzzlePos(u) {
   const a = u.def.veh ? u.aimT : u.ang;
+  const vm = u.def.veh && VMUZ[u.def.spr];
+  if (vm) { const s = u.r / .9 * vm[2]; return { x: u.x + Math.cos(a) * vm[0] * s, y: u.y + Math.sin(a) * vm[0] * s, a, z: vm[1] * s }; }
   const off = u.def.veh ? (u.def.heavy ? 40 : u.r + 12) : u.r + 11;
   return { x: u.x + Math.cos(a) * off, y: u.y + Math.sin(a) * off, a };
 }
@@ -6089,7 +6112,7 @@ function fire(src, tgt, wep, muz) {
   if (typeof npRecordShot === 'function') npRecordShot(src, tgt, wep, m);   // co-op: let allies see this shot
   // fire out of the airframe, not the ground shadow: the aircraft is drawn at
   // screen height alt*VY (see drawAircraft), so muzzle/tracers must start there.
-  const srcZ = (src.def && src.def.fly) ? (src.def.alt || 150) * VY : 0;
+  const srcZ = (src.def && src.def.fly) ? (src.def.alt || 150) * VY : (m.z || 0);
   const tier = src.tier || (src.t ? tierOf(src) : 1);
   const bd = src.bDmg || 1;
 
@@ -6128,7 +6151,7 @@ function fire(src, tgt, wep, muz) {
       x: m.x, y: m.y, px: m.x, py: m.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
       dmg, splash: wep.splash || 0, kind: wep.kind, life, life0: life,
       ang: a, smoke: wep.smokeTrail, team: 1, tm: plyOf(src).team, src, tier, pierce: wep.pierce || 0,
-      z: 9 + srcZ, z0: 9 + srcZ, zg: 9, fly: srcZ > 0 ? 1 : 0
+      z: 9 + srcZ, z0: 9 + srcZ, zg: 9, fly: (src.def && src.def.fly) ? 1 : 0
     });
   }
   fxMuzzle(m.x, m.y, base, (wep.sfx === 'cannon' ? 2.6 : wep.sfx === 'shotgun' ? 1.9 : wep.sfx === 'm2' ? 1.7 : wep.sfx === 'auto' ? 1.5 : 1) * (1 + .28 * (tier - 1)), srcZ, tier);
@@ -6138,10 +6161,10 @@ function fire(src, tgt, wep, muz) {
   if (wep.shake) addShake(m.x, m.y, wep.shake);
   // ground vehicles kick up gun dust — bigger calibre, bigger wave + barrel jet
   if (src.def && src.def.veh && !src.def.fly) {
-    const muzLen = wep.off || (src.r + 12);
-    if (wep.sfx === 'tank') { fxMuzzleDust(src.x, src.y, base, .30, 1.0, muzLen); src.recoil = 1; src.recoilA = base; }       // 120mm: ground + full jet + recoil
-    else if (wep.sfx === 'auto') { fxMuzzleDust(src.x, src.y, base, .05, 0.4, muzLen); src.recoil = .7; src.recoilA = base; } // autocannon: ground + 40% jet + recoil
-    else if (Math.random() < .4) fxMuzzleDust(src.x, src.y, base, .06, 0, muzLen);                                            // vehicle MG: small ground puff
+    const muzLen = m.z !== undefined ? Math.hypot(m.x - src.x, m.y - src.y) : (wep.off || (src.r + 12)), mz = m.z || 0;
+    if (wep.sfx === 'tank') { fxMuzzleDust(src.x, src.y, base, .30, 1.0, muzLen, mz); src.recoil = 1; src.recoilA = base; }       // 120mm: ground + full jet + steam + recoil
+    else if (wep.sfx === 'auto') { fxMuzzleDust(src.x, src.y, base, .05, 0.4, muzLen, mz); src.recoil = .7; src.recoilA = base; } // autocannon: ground + 40% jet + recoil
+    else if (Math.random() < .4) fxMuzzleDust(src.x, src.y, base, .06, 0, muzLen, mz);                                            // vehicle MG: small ground puff
   }
   AU.shot(m.x, m.y, wep.sfx, wep.cd);
 }
@@ -9539,7 +9562,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       const d = Math.hypot(vx - cx, vy - cy) / rv; if (d > 1.3) continue;
       const tx = Math.min(MW - 1, Math.floor(vx / RES)), ty = Math.min(MH - 1, Math.floor(vy / RES)); if (WATER(MAP.t[tileIdx(tx, ty)])) continue;
       // never dig under or around a structure: the ground stays flat for a margin of about a tile and a half past every building's footprint
-      let under = false; for (const b of G.builds) { if (b.dead) continue; const hw = b.w * 1.05 + 1.2, hh = b.h * 1.05 + 1.2; if (Math.abs(vx / RES - b.x * K) < hw && Math.abs(vy / RES - b.y * K) < hh) { under = true; break; } }
+      let under = false; for (const b of G.builds) { if (b.dead) continue; const hw = b.w * .5 + 1.2, hh = b.h * .5 + 1.2; if (Math.abs(vx / RES - b.x * K) < hw && Math.abs(vy / RES - b.y * K) < hh) { under = true; break; } }
       if (!under) for (const zz of G.zeds) { if (zz.dead || !zz.def.struct) continue; const hw = zz.def.w * .6 + 1, hh = zz.def.h * .6 + 1; if (Math.abs(vx / RES - zz.x * K) < hw && Math.abs(vy / RES - zz.y * K) < hh) { under = true; break; } }
       if (under) continue;
       const i = vIdx(vx, vy); let off = 0;
@@ -9920,7 +9943,8 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     return m;
   }
   function mkBuilding(b) {
-    const d = b.def, g = new THREE.Group(), w = d.w, h = d.h, ht = (d.hgt || 30) * K;
+    // models are designed at d.mw × d.mh tiles and scaled up to fill the real footprint d.w × d.h (so the hitbox and placement match what you see)
+    const d = b.def, g = new THREE.Group(), w = d.mw || d.w, h = d.mh || d.h, ht = (d.hgt || 30) * K;
     const wall = matFor(d.col ? d.col[1] : '#4a5344', CONC), roof = matFor(d.roof || (d.col ? d.col[0] : '#5d6a52'), { map: TEX.roof, roughness: .9 }), trim = matFor(d.col ? d.col[0] : '#5d6a52', CONC);
     if (d.flat) { g.add(box(w * .9, .05, h * .9, matFor(d.col[0], { map: TEX.panel }), 0, .03, 0)); for (let i = 0; i < 6; i++) g.add(cyl(.02, 0, .16, BARREL, (i % 3 - 1) * .28, .1, (i < 3 ? -.2 : .2), 'y')); }
     else if (d.wall) {
@@ -10038,8 +10062,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       }
     }
     // buildings read twice as big on the field (1-tile items — walls, fences, gates, traps, lamps — keep their real size so rows still line up)
-    const oneTile = d.wall || d.trap || d.flat || b.t === 'flood';
-    g.userData.bs = oneTile ? 1 : ((b.t === 'barracks' || b.t === 'armory') ? 2.6 : b.t === 'airbase' ? 2.56 : 2);
+    g.userData.bs = d.mw ? d.w / d.mw : 1;
     g.scale.setScalar(g.userData.bs);
     g.position.set(b.x * K, groundY(b.x, b.y), b.y * K);
     scene3.add(g); return { g, wins: g.userData.wins, gun: g.userData.gun };
@@ -10166,7 +10189,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
   const MEAT = c => { const v = rgbOf(c); return v[0] > v[1] * 1.8 || (v[1] > v[0] * 1.6 && v[1] > v[2] * 1.6); };   // red blood or spitter green
   function underBuild(x, y) { if (!G.baseBox || x < G.baseBox.x0 || x > G.baseBox.x1 || y < G.baseBox.y0 || y > G.baseBox.y1) return false; for (const b of G.builds) { if (b.dead) continue; if (Math.abs(x - b.x) < b.w * TS * .5 + 4 && Math.abs(y - b.y) < b.h * TS * .5 + 4) return true; } return false; }
   const ALTK = .42;                                                   // flight altitude in the 3D scene (fraction of the sim's px altitude) — keeps aircraft clear of the camera when zoomed in
-  const AIRSC = { littlebird: 1.53, blackhawk: 1.45, apache: .725, ac130: 3.1, f16: 1.45 };   // absolute model scales per airframe
+  const AIRSC = { littlebird: 1.53, blackhawk: 1.45, apache: 1.45, ac130: 3.1, f16: 1.45 };   // absolute model scales per airframe
   const gunOf = t => t === 'sniper' || t === 'marksman' ? 'long' : 'rifle';
   render = function () {
     if (mapStamp !== MAP.t || structStamp !== MAP.structs) { resetWorld(); mapStamp = MAP.t; structStamp = MAP.structs; lastPX = 1e9; }
@@ -10237,7 +10260,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       // a wall whose neighbours changed, or a building that reached a new tier, is rebuilt so its shape reflects the new state
       if (bm && ((b.def.wall && b.t !== 'gate' && bm.g.userData.mask !== wallMask(b)) || (bm.g.userData.tier || 1) !== (b.tier || 1))) { scene3.remove(bm.g); buildMeshes.delete(b.id); bm = null; }
       if (!bm) { bm = mkBuilding(b); buildMeshes.set(b.id, bm); } const g = bm.g; g.visible = b.x > vx0 - 200 && b.x < vx1 + 200 && b.y > vy0 - 300 && b.y < vy1 + 200; if (!g.visible) continue; g.position.set(b.x * K, groundY(b.x, b.y), b.y * K); { const bs = g.userData.bs || 1; g.scale.set(bs, bs * (b.done ? 1 : Math.max(.08, b.prog || 0)), bs); } if (b.moving) g.position.y += .3; if (bm.gun) bm.gun.rotation.y = -(b.ang || 0); if (b.sel) put(P.sel, b.x * K, groundY(b.x, b.y) + .04, b.y * K, -HPI, 0, 0, Math.max(b.w, b.h) * .7, Math.max(b.w, b.h) * .7, 1);
-      drawDamageState(b, g.position.x, g.position.y, g.position.z, b.w * (g.userData.bs || 1) * .5, b.h * (g.userData.bs || 1) * .5, (b.def.hgt || 30) * K * (g.userData.bs || 1));
+      drawDamageState(b, g.position.x, g.position.y, g.position.z, b.w * .5, b.h * .5, (b.def.hgt || 30) * K * (g.userData.bs || 1));
       if (g.userData.trench) {                                                   // culvert: sits on the undisturbed surface, digs its pit once built, and shows the men lined up inside
         const T = g.userData.trench, bs = g.userData.bs || 1; g.position.y = surfY(b.x, b.y) + (b.moving ? .3 : 0);
         if (b.done && !g.userData.dug) { g.userData.dug = 1; digTrench(b.x, b.y, T.iw * bs * .5 + .15, T.ih * bs * .5 + .15, T.D * bs); }
@@ -10269,7 +10292,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       const vis = u.x > vx0 && u.x < vx1 && u.y > vy0 && u.y < vy1; const d = u.def, x = u.x * K, z = u.y * K, gy = groundY(u.x, u.y);
       if (d.veh) {
         let um = unitMeshes.get(u.id); const ut = tierOf(u); if (um && (um.tier || 1) !== ut) { scene3.remove(um.g); unitMeshes.delete(u.id); um = null; }
-        if (!um) { um = mkVehicle(d.spr, ut); um.g.scale.setScalar(d.fly ? (AIRSC[d.spr] || 1.45) : (u.r * K) / .9 * (d.spr === 'abrams' ? 2.4 : d.spr === 'stryker' ? 1.2 : d.spr === 'humvee' ? 2.0 : 1)); scene3.add(um.g); unitMeshes.set(u.id, um); }   // aircraft drawn at 3x
+        if (!um) { um = mkVehicle(d.spr, ut); um.g.scale.setScalar(d.fly ? (AIRSC[d.spr] || 1.45) : (u.r * K) / .9 * (d.spr === 'abrams' ? 1.68 : d.spr === 'stryker' ? 1.2 : d.spr === 'humvee' ? 2.0 : 1)); scene3.add(um.g); unitMeshes.set(u.id, um); }   // aircraft drawn at 3x
         um.g.visible = vis; if (!vis) continue;
         const alt = d.fly ? (d.alt || 150) * K * ALTK * (u.altK === undefined ? 1 : u.altK) + (d.fly && u.altK !== undefined && u.altK < .02 ? .05 : 0) : 0; um.g.position.set(x, gy + alt, z);
         if (d.fly) { um.g.rotation.set(0, -u.ang, Math.sin(G.t * 2 + u.id) * .03); if (um.rotor) { um.rotor.rotation.z = (u.rot || G.t * 40); um.rotor.visible = !(u.landed && !u.order); } if (um.props) for (const pr of um.props) pr.rotation.x = G.t * 60; const asc = AIRSC[d.spr] || 1.45; put(P.shadow, x, gy + .03, z, -HPI, -u.ang, 0, asc * (d.spr === 'ac130' ? 1.3 : .9), asc * (d.spr === 'ac130' ? 1.5 : .55), 1, AIRSHADOW); }
@@ -10414,7 +10437,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
   const bbFlush = sys => { const n = Math.max(1, sys.n), A = sys.geo.attributes; sys.geo.instanceCount = sys.n; A.iPos.updateRange.count = n * 3; A.iCol.updateRange.count = n * 4; A.iSz.updateRange.count = n; A.iPos.needsUpdate = true; A.iCol.needsUpdate = true; A.iSz.needsUpdate = true; sys.n = 0; };
   /* ghost footprint for placement / relocation */
   const ghostMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: lin(0x8dffbe), transparent: true, opacity: .4 })); ghostMesh.visible = false; scene3.add(ghostMesh);
-  function ghost3(tx, ty, d, ok) { ghostMesh.visible = true; const ht = (d.hgt || 30) * K; ghostMesh.scale.set(d.w, d.flat ? .06 : ht, d.h); const wx = (tx + d.w / 2) * TS, wy = (ty + d.h / 2) * TS; ghostMesh.position.set(wx * K, groundY(wx, wy) + (d.flat ? .03 : ht / 2), wy * K); ghostMesh.material.color.copy(lin(ok ? 0x8dffbe : 0xff6a5a)); }
+  function ghost3(tx, ty, d, ok) { ghostMesh.visible = true; const ht = (d.hgt || 30) * K * (d.mw ? d.w / d.mw : 1); ghostMesh.scale.set(d.w, d.flat ? .06 : ht, d.h); const wx = (tx + d.w / 2) * TS, wy = (ty + d.h / 2) * TS; ghostMesh.position.set(wx * K, groundY(wx, wy) + (d.flat ? .03 : ht / 2), wy * K); ghostMesh.material.color.copy(lin(ok ? 0x8dffbe : 0xff6a5a)); }
   postFX = function () { };                 // the 2D post pass is not used here
   G._r3d = { P, PER_FRAME, PROPS, decals: decalList, crat: () => CRAT, crw: () => CRW, groundY, chunks: chunks3, renderer, scene3, unitMeshes, structMeshes, buildMeshes, wreckMeshes };
 })();
@@ -10468,7 +10491,7 @@ function newGame(opts) {
     if (coop && pi !== G.me) continue;                              // don't spawn allies locally — they come over the network
     G.cur = pi; const [tx, ty] = sites[pi];
     if (G.mp) levelCompound(tx, ty, sites[pi][2]);
-    const hq = addBuilding('hq', tx - 2, ty - 2, true); G.players[pi].hq = hq; if (pi === G.me) myHQ = hq;
+    const hq = addBuilding('hq', tx - 3, ty - 3, true); G.players[pi].hq = hq; if (pi === G.me) myHQ = hq;
     const place = (t, dx, dy) => { for (let a = 0; a < 40; a++) { const bx = tx + dx + rndi(-2, 3), by = ty + dy + rndi(-2, 3); if (canPlace(t, bx, by)) return addBuilding(t, bx, by, true); } return null; };
     place('flood', 6, -5); place('flood', 6, 5); place('tower', 12, 0);
     const hx = (tx + 0) * TS, hy = (ty + 0) * TS;
