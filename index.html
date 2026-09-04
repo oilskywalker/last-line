@@ -335,6 +335,10 @@ html.touch #mtools{display:flex}
 .mtl.on .tg{color:#8dffbe}
 .mtl.dim{opacity:.4}
 html.touch #hint{bottom:210px}
+/* mobile focus mode — a live selection clears the ambient HUD, leaving only the control panels (command card + tools + selection) */
+html.touch.u-selected #topbar,html.touch.u-selected #miniwrap,html.touch.u-selected #speed,html.touch.u-selected #setbtn,html.touch.u-selected #fsbtn,html.touch.u-selected #intel{display:none!important}
+/* mobile — while placing / relocating a structure, hide everything but the placement card so the whole map is clear */
+html.touch.placing #topbar,html.touch.placing #miniwrap,html.touch.placing #speed,html.touch.placing #setbtn,html.touch.placing #fsbtn,html.touch.placing #intel,html.touch.placing #sel,html.touch.placing #mtools,html.touch.placing #bpop,html.touch.placing #hint{display:none!important}
 /* keep every floating panel fully on-screen on phones: cap size and let tall content scroll instead of spilling off-screen */
 html.touch #cmd{max-width:calc(100vw - 16px);max-height:56vh;overflow-y:auto}
 html.touch #sel{max-width:calc(100vw - 16px);max-height:42vh;overflow-y:auto}
@@ -8521,8 +8525,19 @@ function updateBuildPopup() {
     el.style.left = px + 'px'; el.style.top = py + 'px';
   }
 }
+/* mobile focus mode: while a unit/structure is selected, clear the ambient HUD and show only the control panels;
+   while placing or relocating a structure, hide everything but the placement card so the whole map is visible.
+   (CSS is scoped to html.touch, so toggling these classes is a no-op on desktop.) */
+function updateMobileChrome() {
+  const root = document.documentElement;
+  const placing = !!(UI.place || UI.moving || UI.spawnPlace || (UI.queue && UI.queue.length));
+  const selecting = !placing && G.sel && G.sel.length > 0;
+  root.classList.toggle('placing', placing);
+  root.classList.toggle('u-selected', !!selecting);
+}
 function updateHUD(dt) {
   updateBuildPopup();
+  updateMobileChrome();
   hudT -= dt; if (hudT > 0) return; hudT = .1;
   $('rSup').textContent = Math.floor(G.sup);
   $('rScr').textContent = Math.floor(G.scr);
