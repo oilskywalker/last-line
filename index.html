@@ -38,6 +38,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#05070a;color:#dcefe
 
 /* ---------- speed control ---------- */
 #speed{position:absolute;top:10px;right:10px;display:flex;gap:4px;padding:6px}
+#speedbtns{display:flex;gap:4px}
+#speed.collapsed #speedbtns{display:none}
+.sbtn.spdtog{min-width:38px}
+#speed.collapsed .spdtog{opacity:.72}
+#speed.mp{display:none}   /* no speed control in a networked match — changing sim speed would desync players */
 .sbtn{pointer-events:auto;min-width:42px;height:38px;border:1px solid #2b4339;border-radius:4px;
   background:linear-gradient(180deg,#16261f,#0c1713);color:#a9cdbd;font-family:inherit;font-size:13px;
   font-weight:800;letter-spacing:.4px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s}
@@ -482,12 +487,15 @@ window.__FB_CONFIG = /*FBCONFIG*/{
     <div class="cell"><div><div id="rPop">0/0</div><div class="lbl">pop</div></div></div>
   </div>
   <div id="speed" class="pan">
-    <button class="sbtn pz" data-sp="0" title="Pause (P)">❚❚</button>
-    <button class="sbtn" data-sp="0.5">½×</button>
-    <button class="sbtn on" data-sp="1">1×</button>
-    <button class="sbtn" data-sp="2">2×</button>
-    <button class="sbtn" data-sp="3">3×</button>
-    <button class="sbtn" data-sp="4">4×</button>
+    <button class="sbtn spdtog" id="spdtog" title="Hide / show speed bar">⏱</button>
+    <span id="speedbtns">
+      <button class="sbtn pz" data-sp="0" title="Pause (P)">❚❚</button>
+      <button class="sbtn" data-sp="0.5">½×</button>
+      <button class="sbtn on" data-sp="1">1×</button>
+      <button class="sbtn" data-sp="2">2×</button>
+      <button class="sbtn" data-sp="3">3×</button>
+      <button class="sbtn" data-sp="4">4×</button>
+    </span>
   </div>
   <button id="setbtn" title="Settings (Esc)">⚙</button>
   <div id="alerts"></div>
@@ -7884,13 +7892,25 @@ function flashDamage() { flashT = .30; $('dmgflash').style.opacity = '.7'; }
 
 /* ---------------- game speed ---------------- */
 function setSpeed(v) {
+  if (G.mp) v = 1;                                   // multiplayer runs locked at 1× (any other speed would desync peers)
   G.speed = v; G.paused = (v === 0);
-  for (const el of document.querySelectorAll('#speed .sbtn')) el.classList.toggle('on', parseFloat(el.dataset.sp) === v);
+  for (const el of document.querySelectorAll('#speedbtns .sbtn')) el.classList.toggle('on', parseFloat(el.dataset.sp) === v);
   AU.ui(v === 0 ? 'no' : 'tick');
 }
-for (const el of document.querySelectorAll('#speed .sbtn')) {
+for (const el of document.querySelectorAll('#speedbtns .sbtn')) {
   el.onclick = e => { e.stopPropagation(); setSpeed(parseFloat(el.dataset.sp)); };
 }
+/* collapse/expand handle — the bar can block the view on a phone, so let it fold away to just the ⏱ icon */
+function setSpeedCollapsed(on) { const sp = $('speed'); if (!sp) return; sp.classList.toggle('collapsed', !!on); try { localStorage.setItem('ll_spdcol', on ? '1' : '0'); } catch (e) {} }
+(function () {
+  const tog = $('spdtog'); if (tog) tog.onclick = e => { e.stopPropagation(); setSpeedCollapsed(!$('speed').classList.contains('collapsed')); };
+  let col = false; try { col = localStorage.getItem('ll_spdcol') === '1'; } catch (e) {}
+  if (col === false) { try { if (localStorage.getItem('ll_spdcol') == null) col = (matchMedia && matchMedia('(pointer:coarse)').matches); } catch (e) {} }   // default folded on touch devices
+  setSpeedCollapsed(col);
+})();
+/* show/hide the whole speed control for the current match (hidden entirely in multiplayer) */
+function applySpeedMode() { const sp = $('speed'); if (!sp) return; sp.classList.toggle('mp', !!(typeof G !== 'undefined' && G.mp)); if (typeof G !== 'undefined' && G.mp) setSpeed(1); }
+window.applySpeedMode = applySpeedMode;
 const SPEEDS = [0, .5, 1, 2, 3, 4];
 function nudgeSpeed(dir) {
   let i = SPEEDS.indexOf(G.speed); if (i < 0) i = 2;
@@ -8508,6 +8528,8 @@ function updateHUD(dt) {
 /* contextual one-liner that retires itself once you've done the thing */
 function has(t) { return G.builds.some(b => b.t === t && !b.dead); }
 function updateHint() {
+  if (elHint) { elHint.style.display = 'none'; elHint.textContent = ''; }   // tutorial hint popup removed by request
+  return;
   let h = '';
   if (UI.moving) h = 'Click a clear site to drop ' + UI.moving.def.name + ' · right-click to cancel';
   else if (UI.queue.length) h = 'Shift-place more, then press ⏎ to confirm ' + UI.queue.length + ' blueprint' + (UI.queue.length > 1 ? 's' : '');
@@ -8647,7 +8669,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Space') { focusHQ(); e.preventDefault(); return; }
   if (k === 'escape') { if (UI.spawnPlace) { UI.spawnPlace = 0; $('dvIvPlace').classList.remove('arm'); } cancelRelocate(); cancelQueue(); UI.place = null; UI.tab = null; UI.attackMove = false; refreshCard(true); return; }
   if (k === 'enter') { commitQueue(); return; }
-  if (k === 'p') { setSpeed(G.speed === 0 ? 1 : 0); alertMsg(G.speed === 0 ? 'PAUSED' : 'RESUMED', 'info'); return; }
+  if (k === 'p') { if (G.mp) { alertMsg('No pause in multiplayer', 'info'); return; } setSpeed(G.speed === 0 ? 1 : 0); alertMsg(G.speed === 0 ? 'PAUSED' : 'RESUMED', 'info'); return; }
   const bSel = G.sel.some(x => x.kind === 'build' && !x.dead);
   if (bSel && !e.ctrlKey && /^[0-9]$/.test(k)) {                    // structure selected: digits pick from its menu
     const btn = UI.cardBtns[k === '0' ? 9 : (+k - 1)];
@@ -9738,6 +9760,7 @@ function startGame(opts) {
   $('hud').style.display = '';
   G.showcase = false;
   G.started = true;
+  if (typeof applySpeedMode === 'function') applySpeedMode();   // hide the speed bar in multiplayer, lock to 1×
   const creative = (opts && opts.diff === 'creative');
   openDev(creative);
   if (creative) refreshDevToggles();
