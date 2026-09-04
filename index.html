@@ -3997,11 +3997,24 @@ function damage(e, amt, srcAng, opts) {
   // god-mode cheat: your units and structures take no damage at all
   if (G.cheat.god && (e.kind === 'unit' || e.kind === 'build')) return;
   opts = opts || {};
-  // co-op: ghosts are owned by someone else. Never kill them locally — the owner is authoritative.
-  // For a host-owned enemy, tally the hit so the host can apply it and decide the kill.
+  // co-op: ally units/buildings are ghosts — the owner is authoritative, so never damage them locally.
+  // Enemies ARE fought locally: I damage the shared horde on my own screen, and whoever finishes a
+  // zombie gets its scrap directly and tells the host to remove it (so kills — and scrap — are per-player).
   if (e.remote) {
-    if (e.kind === 'zed' && !opts.net) { if (typeof NP !== 'undefined' && NP.on) NP.dmgOut[e.id] = (NP.dmgOut[e.id] || 0) + amt; e.hp = Math.max(1, e.hp - amt); }
-    e.hurt = .22;   // local hit-flash only
+    if (e.kind === 'zed' && !opts.net) {
+      const a2 = opts.trueDmg ? amt : Math.max(1, amt - (e.armor || 0));
+      e.hp -= a2; e.hurt = .22;
+      if (typeof fxGore === 'function') fxGore(e.x, e.y, srcAng || 0, Math.min(6, 1 + a2 / 13), '#8f1414');
+      if (e.hp <= 0 && !e._kdone) {
+        e._kdone = true; e.dead = true;
+        const amt2 = Math.round((e.def.scrap || 1) * (1 + G.wave * .02));
+        G.scr += amt2; if (typeof popText === 'function') popText(e.x, e.y - 18, '+' + amt2 + ' ◆', '#9fe6c0');
+        if (typeof AU !== 'undefined' && AU.splat) AU.splat(e.x, e.y);
+        if (typeof NP !== 'undefined') { (NP.killZ || (NP.killZ = [])).push(e.id); (NP.deadZ || (NP.deadZ = new Set())).add(e.id); }
+      }
+      return;
+    }
+    e.hurt = .22;   // remote unit/building: hit-flash only
     return;
   }
   let a = amt;
@@ -4751,12 +4764,22 @@ function checkVictory() {
 function giveResource(toIdx, kind, amt) {
   const from = G.players[G.me], to = G.players[toIdx];
   if (!from || !to || from === to || from.team !== to.team) return false;
-  const have = kind === 'sup' ? from.sup : from.scr;
-  if (from.unlim[kind]) { /* unlimited: gift freely */ }
-  else { if (have < amt) return false; from[kind] -= amt; }
-  to[kind] += amt;
-  if (typeof NET !== 'undefined' && G.mp && NET.publishCmd) NET.publishCmd({ t: 'give', from: G.me, to: toIdx, kind, amt });
+  if (!from.unlim[kind] && from[kind] < amt) return false;
+  // In a networked match EVERY client (including me) applies the gift through the 'give' command handler,
+  // so the recipient's own stockpile actually receives it. Locally-only otherwise.
+  if (typeof NET !== 'undefined' && G.mp && NET.transport && NET.publishCmd) {
+    NET.publishCmd({ t: 'give', from: G.me, to: toIdx, kind, amt });
+  } else {
+    if (!from.unlim[kind]) from[kind] -= amt; to[kind] += amt;
+  }
   return true;
+}
+/* apply a resource gift on this client — the sender debits, the recipient credits (runs identically everywhere) */
+function applyGive(fromIdx, toIdx, kind, amt) {
+  const from = G.players[fromIdx], to = G.players[toIdx];
+  if (from && !from.unlim[kind]) from[kind] = Math.max(0, from[kind] - amt);
+  if (to) to[kind] += amt;
+  if (toIdx === G.me && typeof popText === 'function' && G.hq) { popText(G.hq.x, G.hq.y - 24, '+' + amt + (kind === 'sup' ? ' ▲' : ' ◆') + ' from ally', kind === 'sup' ? '#8dffbe' : '#9fe6c0'); if (typeof AU !== 'undefined' && AU.ui) AU.ui('ready'); }
 }
 /* list of my living teammates (excludes me) */
 function myAllies() { const t = myTeam(); return G.players.map((p, i) => ({ p, i })).filter(o => o.i !== G.me && o.p.team === t && o.p.alive); }
@@ -4779,7 +4802,7 @@ function myAllies() { const t = myTeam(); return G.players.map((p, i) => ({ p, i
    ================================================================================ */
 const NP = {
   on: false, host: true, sendT: 0.3, SEND: 0.18,
-  peers: {}, peerG: {}, zG: new Map(), dmgOut: {}, shots: []
+  peers: {}, peerG: {}, zG: new Map(), shots: [], killZ: [], deadZ: new Set()
 };
 
 /* record one of my units'/turrets' shots so allies can render the tracer */
@@ -4799,7 +4822,7 @@ function npGhostBullet(x, y, a, spd) {
 function npStart() {
   NP.on = !!(G.mp && typeof NET !== 'undefined' && NET.transport && typeof LOBBY !== 'undefined' && LOBBY.room);
   NP.host = (typeof amHost === 'function') ? !!amHost() : true;
-  NP.peers = {}; NP.peerG = {}; NP.zG = new Map(); NP.dmgOut = {}; NP.sendT = 0.3;
+  NP.peers = {}; NP.peerG = {}; NP.zG = new Map(); NP.shots = []; NP.killZ = []; NP.deadZ = new Set(); NP.sendT = 0.3;
   if (!NP.on) return;
   if (typeof NET !== 'undefined') NET._stateCbs = [];   // fresh listener for this match
   NET.onState((pid, snap) => { try { if (pid === LOBBY.myId) return; if (!snap) removePeer(pid); else reconcilePeer(pid, snap); } catch (e) { } });
@@ -4822,7 +4845,7 @@ function broadcastState() {
     for (const z of G.zeds) { if (z.dead || z.remote || z.def.struct || z.def.worker) continue; Z.push([z.id, z.t, Math.round(z.x), Math.round(z.y), Math.round((z.ang || 0) * 100), Math.round(z.hp)]); }
     snap.z = Z;
   }
-  if (!NP.host && Object.keys(NP.dmgOut).length) { snap.dmg = NP.dmgOut; NP.dmgOut = {}; }
+  if (!NP.host && NP.killZ.length) { snap.kz = NP.killZ; NP.killZ = []; }   // enemies I finished off — the host removes them
   if (NP.shots.length) { snap.f = NP.shots; NP.shots = []; }   // my gunfire this interval, for allies to draw
   NET.publishState(snap);
 }
@@ -4849,19 +4872,22 @@ function reconcilePeer(pid, snap) {
   }
   for (const [id, g] of pg.b) { if (!seenB.has(id)) { g.dead = true; pg.b.delete(id); } }
 
-  // the shared horde: only from the host, and only when I'm not the host
+  // the shared horde: only from the host, and only when I'm not the host. Host drives POSITION/existence;
+  // each client tracks the enemy's hp locally (so it can finish it off and earn the scrap).
   if (!NP.host && snap.z && pid === LOBBY.room.hostId) {
     const seenZ = new Set();
     for (const a of snap.z) {
-      const id = a[0]; seenZ.add(id); let g = NP.zG.get(id);
+      const id = a[0]; seenZ.add(id); if (NP.deadZ.has(id)) continue;   // I already killed it; don't revive it
+      let g = NP.zG.get(id);
       if (!g || g.dead) { g = makeGhostZed(a[1], a[2], a[3]); if (!g) continue; g.id = id; NP.zG.set(id, g); }
-      g.tx2 = a[2]; g.ty2 = a[3]; g.tang2 = (a[4] || 0) / 100; g.hp = a[5];
+      g.tx2 = a[2]; g.ty2 = a[3]; g.tang2 = (a[4] || 0) / 100;   // NOT hp — that's local now
     }
     for (const [id, g] of NP.zG) { if (!seenZ.has(id)) { g.dead = true; NP.zG.delete(id); } }
+    for (const id of NP.deadZ) if (!seenZ.has(id)) NP.deadZ.delete(id);   // host confirmed the removal — forget it
   }
 
-  // I'm the host: apply the damage this client's units dealt to my enemies (it decides nothing; I do)
-  if (NP.host && snap.dmg) { for (const k in snap.dmg) { const z = G.zeds.find(q => !q.remote && q.id == k); if (z) damage(z, snap.dmg[k], 0, { net: true }); } }
+  // I'm the host: remove the enemies a client finished off (that client already took the scrap)
+  if (NP.host && snap.kz) { for (const id of snap.kz) { const z = G.zeds.find(q => !q.remote && q.id == id); if (z) z.dead = true; } }
   // draw this ally's gunfire as tracers
   if (snap.f) for (const s of snap.f) npGhostBullet(s[0], s[1], (s[2] || 0) / 100, s[3] || 900);
 }
@@ -4922,12 +4948,12 @@ function npGhostZed(z, dt) {
     z.ang = (z.ang || 0) + da * Math.min(1, dt * 8);
   }
   z.hurt = Math.max(0, (z.hurt || 0) - dt * 4);
-  // the shared enemy still bites whatever local unit of MINE is next to it
+  // the shared enemy seeks and destroys MY stuff too: bite my nearest unit, or gnaw my nearest building
   z.gcd = (z.gcd || 0) - dt;
   if (z.gcd <= 0) {
-    let best = null, bd = 1e9;
-    for (const u of G.units) { if (u.dead || u.remote || u.inside || (u.owner || 0) !== G.me) continue; const dd = dist2(z.x, z.y, u.x, u.y); if (dd < bd) { bd = dd; best = u; } }
-    const reach = (z.r + 26);
+    let best = null, bd = 1e9, reach = z.r + 26;
+    for (const u of G.units) { if (u.dead || u.remote || u.inside || (u.owner || 0) !== G.me) continue; const dd = dist2(z.x, z.y, u.x, u.y); if (dd < bd) { bd = dd; best = u; reach = z.r + 26; } }
+    for (const b of G.builds) { if (b.dead || b.remote || (b.owner || 0) !== G.me) continue; const rr = Math.max(b.w, b.h) * TS * .55 + z.r + 12; const dd = dist2(z.x, z.y, b.x, b.y); if (dd < bd && dd < rr * rr) { bd = dd; best = b; reach = rr; } }
     if (best && bd < reach * reach) { z.gcd = .7; const dmg = (z.def && z.def.dmg) || 8; damage(best, dmg, Math.atan2(z.y - best.y, z.x - best.x)); }
     else z.gcd = .25;
   }
@@ -5218,7 +5244,10 @@ function startWave() {
 function spawnWaveContact(t) {
   if (G.zeds.length >= MAXZ) return;
   if (G.mode === 'invaders') return spawnInvaderContact(t);
-  const bx = G.hq && !G.hq.dead ? G.hq.x : BASE_X, by = G.hq && !G.hq.dead ? G.hq.y : BASE_Y;
+  // co-op: the horde seeks EVERY player — aim each contact at a random player's base (allies included)
+  const hqs = G.builds.filter(b => !b.dead && b.t === 'hq');
+  const base = hqs.length ? hqs[(Math.random() * hqs.length) | 0] : (G.hq && !G.hq.dead ? G.hq : null);
+  const bx = base ? base.x : BASE_X, by = base ? base.y : BASE_Y;
   let p, hunt;
   if (Math.random() < .68) { p = randomLandPoint(bx, by, 1900, 3400); hunt = true; }
   else { p = randomLandPoint(); hunt = false; }
@@ -10395,6 +10424,7 @@ function bindRoom() {
     else if (c.t === 'join' && amHost()) { if (LOBBY.room.seats.length < 6 && !LOBBY.room.seats.find(s => s.id === c.id)) { LOBBY.room.seats.push(seat(c.id, c.name, LOBBY.room.seats.length)); NET.publishRoom(LOBBY.room); } }
     else if (c.t === 'loaded') { LOBBY.loadPct = LOBBY.loadPct || {}; LOBBY.loadPct[c.id] = Math.max(LOBBY.loadPct[c.id] || 0, c.v || 0); renderLoad(); tryStartMatch(); }   // progress tracked in a monotonic map, not the room snapshot (snapshots would clobber it)
     else if (c.t === 'seat') { const st = LOBBY.room.seats.find(s => s.id === c.id); if (st) { if (c.team) st.team = c.team; if (c.spawn !== undefined) st.spawn = c.spawn; if (c.name) st.name = c.name; if (amHost()) NET.publishRoom(LOBBY.room); } renderLobby(); }
+    else if (c.t === 'give') { if (typeof applyGive === 'function') applyGive(c.from, c.to, c.kind, c.amt); }   // ally resource gift — applied on every client so the recipient actually gets it
     else if (c.t === 'begin') beginLoading(); });
 }
 
