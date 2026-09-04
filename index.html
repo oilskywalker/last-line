@@ -9690,17 +9690,27 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     if (zed) { if (h1 < .8) put(P.helm, X(hF - headR * .15, 0), hY + headR * .15, Z(hF - headR * .15, 0), 0, ry, .15, headR * 1.03, headR * .95, headR * 1.03, HAIRS[(h2 * 5) | 0]); }
     else if (med) { const hc = S.helm === '#9aa0aa' || o.mk !== 'archer' ? STEEL : col3(S.helm); put(P.helm, X(hF, 0), hY + headR * .1, Z(hF, 0), 0, ry, 0, headR * 1.14, headR * 1.05, headR * 1.14, hc); if (o.mk !== 'archer') put(P.box, X(hF + headR * 1.05, 0), hY + headR * .05, Z(hF + headR * 1.05, 0), 0, ry, 0, headR * .25, headR * 1.0, headR * .22, hc); }
     else { put(P.helm, X(hF, 0), hY + headR * .16, Z(hF, 0), 0, ry, -.1, headR * 1.2, headR * 1.02, headR * 1.2, col3(S.helm || '#6f8757')); put(P.box, X(hF, 0), hY + headR * .08, Z(hF, 0), 0, ry, 0, headR * 2.0, headR * .4, headR * 2.3, col3k(S.helm || '#6f8757', .85)); if (S.visor) put(P.box, X(hF + headR * 1.0, 0), hY + headR * .2, Z(hF + headR * 1.0, 0), 0, ry, 0, headR * .3, headR * .5, headR * 1.6, col3(S.visor)); }
-    // upgrade tiers read as more modern kit: Mk2 adds a plate carrier, knee pads and a helmet rail; Mk3 adds NVG mount, headset and side plates
+    // upgrade tiers: every role gets its own kit at Mk2 and Mk3 (all of it hugs the body, so the figure never grows past its real size)
     if (S.tier >= 2 && !zed && !med) {
-      const PL = col3k(S.gear || '#33482f', .55);
-      put(P.box, X(tl * 1.1 + torsoD * .2, 0), tcY + torsoH * .12, Z(tl * 1.1 + torsoD * .2, 0), 0, ry, -lean, torsoD * .5, torsoH * .5, torsoW * .7, PL);                                   // front plate
-      for (let s = -1; s <= 1; s += 2) put(P.box, X(hF, s * headR * 1.05), hY + headR * .15, Z(hF, s * headR * 1.05), 0, ry, 0, headR * 1.3, headR * .22, headR * .18, PL);              // helmet rails
-      if (S.tier >= 3) {
-        put(P.box, X(hF + headR * .9, 0), hY + headR * .75, Z(hF + headR * .9, 0), 0, ry, .3, headR * .5, headR * .55, headR * .45, PL);                                                     // NVG mount
-        put(P.cyl, X(hF + headR * 1.1, 0), hY + headR * .55, Z(hF + headR * 1.1, 0), HPI, ry, 0, headR * .28, headR * .5, headR * .28, col3('#1a1c1e'));                                     // NVG tube (stowed up)
-        for (let s = -1; s <= 1; s += 2) put(P.box, X(tl, s * torsoW * .55), tcY, Z(tl, s * torsoW * .55), 0, ry, -lean, torsoD * .7, torsoH * .45, 1.2 * sc, PL);                              // side plates
-        put(P.box, X(hF, -headR * 1.0), hY - headR * .1, Z(hF, -headR * 1.0), 0, ry, 0, headR * .5, headR * .5, headR * .3, col3('#1a1c1e'));                                                // headset
-      }
+      const ut = o.ut || '', t3 = S.tier >= 3, PL = col3k(S.gear || '#33482f', .55), DK = col3('#1a1c1e'), STL = col3('#8a9298'), ACC = col3(t3 ? '#e8c85a' : '#c9cf8a');
+      const bf = tl - torsoD * .5 - .6 * sc, bY = tcY + torsoH * .05;                                                    // back / pack anchor
+      const chest = (h, wf, colr) => put(P.box, X(tl * 1.1 + torsoD * .22, 0), tcY + torsoH * .1, Z(tl * 1.1 + torsoD * .22, 0), 0, ry, -lean, torsoD * .4, torsoH * h, torsoW * wf, colr);
+      const rail = () => { for (let s2 = -1; s2 <= 1; s2 += 2) put(P.box, X(hF, s2 * headR * 1.02), hY + headR * .15, Z(hF, s2 * headR * 1.02), 0, ry, 0, headR * 1.2, headR * .2, headR * .16, PL); };
+      const nvg = () => { put(P.box, X(hF + headR * .85, 0), hY + headR * .72, Z(hF + headR * .85, 0), 0, ry, .3, headR * .45, headR * .5, headR * .4, PL); put(P.cyl, X(hF + headR * 1.0, 0), hY + headR * .5, Z(hF + headR * 1.0, 0), HPI, ry, 0, headR * .26, headR * .45, headR * .26, DK); };
+      const headset = () => put(P.box, X(hF, -headR * .98), hY - headR * .05, Z(hF, -headR * .98), 0, ry, 0, headR * .45, headR * .45, headR * .28, DK);
+      const pack = (d, hh, wf, colr) => put(P.box, X(bf - d * .5, 0), bY, Z(bf - d * .5, 0), 0, ry, -lean, d, torsoH * hh, torsoW * wf, colr);
+      const hipbag = (side, colr) => put(P.box, X(tl * .2, side * torsoW * .58), hipY + torsoH * .12, Z(tl * .2, side * torsoW * .58), 0, ry, 0, torsoD * .6, torsoH * .3, 1.4 * sc, colr);
+      const stripe = colr => put(P.box, X(tl, torsoW * .52), tcY + torsoH * .22, Z(tl, torsoW * .52), 0, ry, -lean, torsoD * .5, 1.0 * sc, .6 * sc, colr);
+      if (ut === 'rifleman') { chest(.5, .7, PL); rail(); if (t3) { nvg(); headset(); hipbag(1, PL); } }
+      else if (ut === 'gunner') { chest(.55, .75, DK); stripe(col3('#5ad0ff')); if (t3) { nvg(); pack(2.2 * sc, .5, .5, DK); put(P.cyl, X(bf - 1.4 * sc, torsoW * .3), bY + torsoH * .45, Z(bf - 1.4 * sc, torsoW * .3), 0, ry, 0, .35 * sc, torsoH * .5, .35 * sc, DK); } }   // radio + whip
+      else if (ut === 'rocketeer') { pack(2.4 * sc, .8, .55, PL); put(P.cyl, X(bf - 1.6 * sc, -torsoW * .28), bY + torsoH * .1, Z(bf - 1.6 * sc, -torsoW * .28), .2, ry, 0, 1.3 * sc, torsoH * 1.0, 1.3 * sc, col3('#3a4a2e')); if (t3) { put(P.cyl, X(bf - 1.6 * sc, torsoW * .28), bY + torsoH * .1, Z(bf - 1.6 * sc, torsoW * .28), .2, ry, 0, 1.3 * sc, torsoH * 1.0, 1.3 * sc, col3('#3a4a2e')); chest(.5, .72, PL); rail(); } }   // spare rocket tubes
+      else if (ut === 'mortar') { pack(3.0 * sc, .85, .7, col3('#4a5040')); hipbag(1, PL); if (t3) { hipbag(-1, PL); put(P.box, X(hF + headR * .8, headR * .5), hY + headR * .35, Z(hF + headR * .8, headR * .5), 0, ry, 0, headR * .5, headR * .35, headR * .5, DK); } }   // ammo pack + rangefinder
+      else if (ut === 'support') { pack(3.4 * sc, .95, .8, col3('#5a5a40')); if (t3) { for (let s2 = -1; s2 <= 1; s2 += 2) put(P.box, X(0, s2 * torsoW * .55), hipY - legL * .3, Z(0, s2 * torsoW * .55), 0, ry, 0, .9 * sc, legL * .8, .8 * sc, STL); put(P.box, X(tl * .2, 0), hipY + torsoH * .05, Z(tl * .2, 0), 0, ry, 0, torsoD * 1.1, 1.2 * sc, torsoW * 1.15, STL); } }   // exo-frame legs + belt
+      else if (ut === 'engineer') { hipbag(1, col3('#8a6a30')); hipbag(-1, col3('#8a6a30')); if (t3) { put(P.box, X(hF + headR * .95, 0), hY + headR * .35, Z(hF + headR * .95, 0), 0, ry, 0, headR * .3, headR * .35, headR * .5, col3('#ffe9a8')); put(P.box, X(hF + headR * .6, 0), hY + headR * 1.05, Z(hF + headR * .6, 0), 0, ry, .6, headR * .9, headR * .25, headR * 1.3, DK); pack(1.6 * sc, .55, .6, col3('#8a6a30')); } }   // head lamp + welding mask up + tool pack
+      else if (ut === 'marksman' || ut === 'sniper') { for (let k = 0; k < (t3 ? 8 : 4); k++) { const a1 = hash2(vid * 5 + k, 61), a2 = hash2(vid * 9 + k, 67), r = (2.6 + a1 * 1.6) * sc; put(P.bush, X(tl + (a1 - .5) * torsoD, (a2 - .5) * torsoW * 1.3), hipY + a2 * torsoH * .5, Z(tl + (a1 - .5) * torsoD, (a2 - .5) * torsoW * 1.3), a1 * 2, ry + a2, a1, r, r * .7, r, GHILLIE[(k + 1) % 4]); } if (t3) put(P.bush, X(hF - headR * .3, 0), hY + headR * .9, Z(hF - headR * .3, 0), 0, ry, .4, headR * 1.5, headR * .8, headR * 1.5, GHILLIE[2]); }   // fuller ghillie, hood
+      else if (ut === 'medic') { hipbag(1, REDCROSS); hipbag(-1, col3('#e6e6e2')); if (t3) pack(2.4 * sc, .7, .6, col3('#e6e6e2')); }
+      else { chest(.5, .7, PL); if (t3) rail(); }
+      if (t3) stripe(ACC);                                                                                                  // Mk3 rank flash on the arm
     }
     // medic: a red cross on the back and on the helmet
     if (S.cross && !zed) {
@@ -9913,21 +9923,38 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       g.add(box(.5, .06, .06, SKIND, -.1, .74, 0));                                                                              // spine
     } else { g.add(box(1.6, .5, 1.0, OLIVE, 0, .4, 0)); }
     g.add(tur);
-    /* upgrade tiers modernise the airframe / hull: Mk2 adds applique armour blocks (or sensor pods on aircraft) and a comms antenna,
-       Mk3 adds a sensor mast, flare/jammer boxes and a bright accent stripe so the model reads as the top-line variant */
+    /* upgrade tiers: each vehicle gets its own Mk2 / Mk3 fit, all of it mounted on the existing hull so the model keeps its real size */
     if (tier >= 2) {
-      const bb3 = new THREE.Box3().setFromObject(g), sz = bb3.getSize(new THREE.Vector3()), cx = (bb3.min.x + bb3.max.x) * .5, top = bb3.max.y, hz = sz.z * .5;
-      const ARM = matFor(tier >= 3 ? '#5a6266' : '#4a5248', { metalness: .35, roughness: .6 }), ACC = matFor(tier >= 3 ? '#e8c85a' : '#c9cf8a');
-      const fly = spr === 'blackhawk' || spr === 'littlebird' || spr === 'apache' || spr === 'ac130' || spr === 'f16';
-      if (!fly) {
-        for (const s of [-1, 1]) for (let i = 0; i < Math.max(2, Math.round(sz.x / .45)); i++) g.add(box(.32, .18, .07, ARM, cx - sz.x * .38 + i * .45, top * .45, s * (hz + .03)));   // applique blocks
-        g.add(cyl(.012, .012, .7, matFor('#1a1c1e'), cx - sz.x * .3, top + .3, hz * .6, 'y'));                                                                                       // antenna
-        g.add(box(sz.x * .6, .03, .05, ACC, cx, top * .5 + .01, hz + .08));                                                                                                             // accent stripe
-        if (tier >= 3) { g.add(box(.16, .28, .16, ARM, cx + sz.x * .1, top + .1, -hz * .4)); g.add(sph(.07, matFor('#5ad0ff', { emissive: lin('#3ab0ff'), emissiveIntensity: 1.2 }), cx + sz.x * .1, top + .3, -hz * .4)); for (const s of [-1, 1]) g.add(box(.14, .1, .1, ARM, cx - sz.x * .42, top * .7, s * hz * .7)); }   // sensor mast + smoke launchers
+      const t3 = tier >= 3, ERA = matFor(t3 ? '#5a6266' : '#4a5248', { metalness: .35, roughness: .6 }), DKM = matFor('#1a1c1e', { metalness: .5, roughness: .4 }), ACC = matFor(t3 ? '#e8c85a' : '#c9cf8a'), SENS = matFor('#5ad0ff', { emissive: lin('#3ab0ff'), emissiveIntensity: 1.2 });
+      if (spr === 'abrams') {
+        for (let i = 0; i < 4; i++) for (const sd of [-1, 1]) tur.add(box(.26, .22, .08, ERA, -.55 + i * .36, .2, sd * .68));                       // ERA tiles on the turret cheeks
+        tur.add(box(.9, .03, .12, ACC, -.2, .43, -.45));                                                                                           // turret-roof ID stripe
+        if (t3) { for (let i = 0; i < 5; i++) for (const sd of [-1, 1]) g.add(box(.42, .22, .06, ERA, -1.1 + i * .5, .5, sd * 1.09)); tur.add(box(.22, .24, .22, DKM, -.1, .62, -.35)); tur.add(cyl(.02, .02, .5, BARREL, .3, .72, -.35, 'x')); tur.add(sph(.05, SENS, .05, .8, -.35)); tur.add(box(.3, .1, .3, DKM, .2, .5, 0)); }   // TUSK skirts, remote weapon station, commander's sight
+      } else if (spr === 'stryker') {
+        for (let i = 0; i < 6; i++) for (const sd of [-1, 1]) g.add(box(.36, .3, .05, ERA, -1.15 + i * .42, .75, sd * .78));                      // slat / reactive armour panels along the hull sides
+        g.add(box(1.6, .03, .12, ACC, -.3, 1.27, -.55));
+        if (t3) { tur.add(box(.2, .2, .2, DKM, -.35, .42, .25)); tur.add(sph(.05, SENS, -.35, .56, .25)); tur.add(box(.55, .2, .26, ERA, -.05, .34, .55, 0, 0, .12)); for (let i = 0; i < 2; i++) tur.add(cyl(.028, .028, .09, TRACK, .45 - i * .07, .3, .55 * 1.4, 'x')); }   // sight, second TOW box, launchers
+      } else if (spr === 'humvee') {
+        g.add(box(.05, .28, .98, ERA, .55, .72, .0)); for (const sd of [-1, 1]) g.add(box(1.6, .26, .04, ERA, -.05, .5, sd * .53));                // armour doors / side plates
+        g.add(box(.14, .06, .9, ACC, -.6, 1.08, 0));
+        if (t3) { tur.add(box(.04, .3, .5, ERA, .16, .28, 0)); for (const sd of [-1, 1]) tur.add(box(.3, .28, .03, ERA, -.05, .28, sd * .25)); g.add(box(.2, .2, .2, DKM, -.5, 1.1, -.3)); g.add(sph(.05, SENS, -.5, 1.24, -.3)); g.add(box(.08, .2, .9, ERA, 1.05, .8, 0)); }   // gun shield, jammer, raised brush guard
+      } else if (spr === 'littlebird') {
+        for (const sd of [-1, 1]) g.add(cyl(.07, .07, .5, DKM, .15, .3, sd * .34, 'x'));                                                            // minigun pods
+        g.add(box(.5, .02, .05, ACC, -.1, .64, .23)); g.add(box(.5, .02, .05, ACC, -.1, .64, -.23));
+        if (t3) { for (const sd of [-1, 1]) g.add(cyl(.09, .09, .4, ERA, .1, .36, sd * .42, 'x')); g.add(sph(.08, DKM, .5, .3, 0)); g.add(box(.1, .06, .12, DKM, -.3, .66, 0)); }   // rocket pods, chin sensor ball, DAS box
+      } else if (spr === 'blackhawk') {
+        for (const sd of [-1, 1]) g.add(box(.36, .1, .2, DKM, .35, .5, sd * .43));                                                                   // door-gun mounts
+        g.add(box(1.4, .03, .08, ACC, .1, .84, .0));
+        if (t3) { for (const sd of [-1, 1]) { g.add(box(.5, .06, .4, OLIVE, .05, .78, sd * .6)); g.add(cyl(.09, .09, .5, ERA, .05, .68, sd * .78, 'x')); } g.add(sph(.08, DKM, 1.3, .38, 0)); g.add(box(.2, .1, .2, DKM, -.9, .8, 0)); }   // ESSS stubs with tanks, nose FLIR, IR jammer
+      } else if (spr === 'apache') {
+        g.add(sph(.16, ERA, 0, 1.06, 0, 1, .35, 1));                                                                                                // Longbow radar dome above the mast
+        g.add(box(1.2, .02, .06, ACC, -.3, .8, 0));
+        if (t3) { for (const sd of [-1, 1]) g.add(box(.5, .12, .16, ERA, .1, .48, sd * .9)); g.add(box(.12, .1, .12, DKM, 1.3, .68, 0)); g.add(sph(.04, SENS, 1.38, .68, 0)); }   // Hellfire racks, nose sight
+      } else if (spr === 'ac130' || spr === 'f16') {
+        g.add(box(.5, .04, .06, ACC, 0, .7, 0)); g.add(box(.12, .1, .12, DKM, .6, .5, 0));                                                          // squadron band, sensor turret
+        if (t3) g.add(sph(.04, SENS, .66, .5, 0));
       } else {
-        for (const s of [-1, 1]) g.add(cyl(.05, .05, .32, ARM, cx, sz.y * .3, s * hz * .55, 'x'));                                                                                       // sensor pods
-        g.add(box(sz.x * .4, .02, .04, ACC, cx, sz.y * .55, hz * .5)); g.add(box(sz.x * .4, .02, .04, ACC, cx, sz.y * .55, -hz * .5));                                                 // stripes
-        if (tier >= 3) { g.add(sph(.08, matFor('#1a1c1e', { metalness: .6, roughness: .3 }), cx + sz.x * .42, sz.y * .3, 0)); g.add(box(.12, .08, .18, ARM, cx - sz.x * .3, sz.y * .25, 0)); }   // EO turret + jammer
+        g.add(box(.6, .03, .05, ACC, 0, .66, .5));
       }
     }
     return { g, tur, rotor, props, tier };
@@ -9982,7 +10009,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       const lens = box(.26, .03, .14, matFor('#fff2d0', { emissive: lin('#ffe6b0'), emissiveIntensity: 1.3 }), .64, H - .085, 0); g.add(lens); g.userData.lamp = lens;
     }
     else if (b.t === 'airbase') {
-      const W = w * 1.3, H = h * 1.3, TAR = matFor('#5e6166', { map: TEX.road, roughness: .95 });
+      const W = w, H = h, TAR = matFor('#5e6166', { map: TEX.road, roughness: .95 });   // the apron is the footprint
       g.add(box(W, .05, H, TAR, 0, .03, 0));                                                                                     // apron
       const hg = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(H * .3, H * .3, W * .5, 16, 1, false, 0, Math.PI), matFor('#7a7e84', PANEL))); hg.rotation.z = HPI; hg.position.set(-W * .2, 0, -H * .25); g.add(hg);
       g.add(box(W * .5, .06, H * .6, matFor('#7a7e84', PANEL), -W * .2, .06, -H * .25)); g.add(box(.06, H * .28, H * .5, matFor('#3a3e44', PANEL), W * .05, H * .14, -H * .25));   // hangar + door
@@ -10021,22 +10048,24 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     } else if (b.t === 'armory') {
       // research lab: white block with a glazed front, roof dish and vents; a firing lane and sandbag butt beside it for the test range
       const LAB = matFor('#c9ccd0', CONC), LABD = matFor('#8a9096', PANEL);
-      g.add(box(w * .96, ht, h * .96, LAB, 0, ht / 2, 0)); g.add(box(w, .1, h, LABD, 0, ht + .05, 0)); g.add(box(w * .96, .12, h * .96, LABD, 0, .06, 0));
-      g.add(box(w * .8, ht * .5, .06, GLASS, 0, ht * .5, h * .48 + .03)); for (let i = 0; i < 4; i++) g.add(box(.03, ht * .5, .08, LABD, -w * .3 + i * w * .2, ht * .5, h * .48 + .04));
-      const dish = shadowed(new THREE.Mesh(new THREE.SphereGeometry(.32, 12, 8, 0, TAU, 0, .8), matFor('#d8dce0', { side: THREE.DoubleSide }))); dish.position.set(-w * .3, ht + .3, -h * .25); dish.rotation.x = -.8; g.add(dish);
-      for (let i = 0; i < 3; i++) g.add(cyl(.07, .07, .3, LABD, w * .2 + i * .25, ht + .2, -h * .3, 'y'));
+      // the lab block takes the left half of the site; the test range takes the right half — everything stays inside the real footprint
+      const BW = w * .52, BX = -w * .23;
+      g.add(box(BW, ht, h * .96, LAB, BX, ht / 2, 0)); g.add(box(BW + .06, .1, h, LABD, BX, ht + .05, 0)); g.add(box(BW, .12, h * .96, LABD, BX, .06, 0));
+      g.add(box(BW * .8, ht * .5, .06, GLASS, BX, ht * .5, h * .48 + .03)); for (let i = 0; i < 4; i++) g.add(box(.03, ht * .5, .08, LABD, BX - BW * .3 + i * BW * .2, ht * .5, h * .48 + .04));
+      const dish = shadowed(new THREE.Mesh(new THREE.SphereGeometry(.32, 12, 8, 0, TAU, 0, .8), matFor('#d8dce0', { side: THREE.DoubleSide }))); dish.position.set(BX - BW * .2, ht + .3, -h * .25); dish.rotation.x = -.8; g.add(dish);
+      for (let i = 0; i < 3; i++) g.add(cyl(.07, .07, .3, LABD, BX + BW * .1 + i * .2, ht + .2, -h * .3, 'y'));
       const win = matFor('#182028', { emissive: lin('#8fd0ff'), emissiveIntensity: 0, roughness: .3 }); g.userData.wins = win;
-      for (let i = 0; i < 3; i++) g.add(box(.26, .26, .04, win, -w * .3 + i * w * .3, ht * .7, -h * .48 - .02));
-      // the test range sits to the RIGHT (+x) of the building; its five lanes run straight NORTH (−z)
-      const LANE = 3.2, NL = 5, DX = .5, rx0 = w * .5 + .45, rz = h * .45, cx0 = rx0 + (NL - 1) * DX * .5;
-      g.add(box(NL * DX + .4, .03, .42, matFor('#3a3e42'), cx0, .02, rz));                                    // firing-line pad
+      for (let i = 0; i < 3; i++) g.add(box(.26, .26, .04, win, BX - BW * .3 + i * BW * .3, ht * .7, -h * .48 - .02));
+      // the test range sits to the RIGHT (+x) of the lab, inside the footprint; its five lanes run straight NORTH (−z)
+      const NL = 5, DX = w * .08, rx0 = w * .12, rz = h * .45, LANE = h * .86, cx0 = rx0 + (NL - 1) * DX * .5;
+      g.add(box(NL * DX + .1, .03, .3, matFor('#3a3e42'), cx0, .02, rz));                                     // firing-line pad
       for (let i = 0; i <= NL; i++) g.add(box(.05, .02, LANE, matFor('#e8e8dc'), rx0 + (i - .5) * DX, .015, rz - LANE * .5));   // lane edge markers
       for (let i = 0; i < NL; i++) {
         const lx = rx0 + i * DX;
-        for (let k = 0; k < 3; k++) g.add(box(.34, .2, .2, BAGS, lx, .1 + k * .18, rz - LANE - .2));           // sandbag butt
-        g.add(box(.4, .5, .04, matFor('#e6e2d0'), lx, .5, rz - LANE)); g.add(box(.26, .34, .045, matFor('#2a2a2a'), lx, .5, rz - LANE + .005)); g.add(box(.1, .12, .05, RED, lx, .52, rz - LANE + .01));   // target board
+        for (let k = 0; k < 3; k++) g.add(box(DX * .9, .16, .16, BAGS, lx, .08 + k * .15, rz - LANE - .08));    // sandbag butt
+        g.add(box(DX * .8, .4, .04, matFor('#e6e2d0'), lx, .4, rz - LANE)); g.add(box(DX * .5, .28, .045, matFor('#2a2a2a'), lx, .4, rz - LANE + .005)); g.add(box(.08, .1, .05, RED, lx, .42, rz - LANE + .01));   // target board
       }
-      g.add(box(.3, .1, .3, matFor('#5a4a34', WOODM), rx0 + NL * DX + .2, .05, rz + .3));                    // ammo crate at the end of the line
+      g.add(box(.3, .1, .3, matFor('#5a4a34', WOODM), rx0 - .3, .05, rz - .4));                              // ammo crate beside the firing line
       g.userData.range = { x0: rx0, z: rz, lane: LANE, n: NL, dx: DX };
     } else {
       g.add(box(w * .96, ht, h * .96, wall, 0, ht / 2, 0)); g.add(box(w, .12, h, roof, 0, ht + .06, 0)); g.add(box(w * .96, .12, h * .96, trim, 0, .06, 0));
@@ -10048,22 +10077,71 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       if (b.t === 'vbay') { g.add(box(w * .6, ht * .72, .06, matFor('#c9a33d', { map: TEX.roof }), 0, ht * .36, h * .48 + .04)); g.add(box(w * .9, .1, .12, matFor('#8a8f94', PANEL), 0, ht * .95, h * .48 + .1)); for (let i = 0; i < 3; i++) g.add(cyl(.12, .12, .34, matFor(i ? '#8a3a2a' : '#4a5a30', { map: TEX.panel }), -w * .45 - .2, .17, -h * .3 + i * .3, 'y')); }
       if (b.t === 'refinery') { for (let i = 0; i < 2; i++) g.add(cyl(.32, .32, ht * .8, matFor(i ? '#6a7250' : '#7a6a4a', PANEL), -w * .28 + i * w * .56, ht * .4, -h * .26, 'y')); g.add(cyl(.14, .16, ht * 1.6, matFor('#3a352c', CONC), w * .34, ht * .8, h * .26, 'y')); g.add(cyl(.17, .14, .18, matFor('#2a2620'), w * .34, ht * 1.6, h * .26, 'y')); g.add(box(w * .5, ht * .22, h * .3, matFor('#5a5040', PANEL), 0, ht * .5, h * .18)); for (let i = 0; i < 4; i++) g.add(cyl(.02, .02, .5, matFor('#8a8f94'), -w * .3 + i * .2, ht + .25, h * .1, 'x')); }
     }
-    /* upgrade tiers make a structure look more modern: Mk2 adds steel corner armour, a comms mast and an accent band;
-       Mk3 adds a sensor dome, floodlight strip, solar panels and a brighter trim so the top tier is unmistakable */
+    /* upgrade tiers: every structure has its own Mk2 / Mk3 dressing, all of it inside the real footprint */
     const tier = b.tier || 1; g.userData.tier = tier;
-    if (tier >= 2 && !d.wall && !d.trap && !d.flat) {
-      const STL = matFor(tier >= 3 ? '#8a9298' : '#5a6266', { metalness: .5, roughness: .45 }), ACC = matFor(tier >= 3 ? '#e8c85a' : '#c9cf8a', { emissive: lin(tier >= 3 ? '#8a7020' : '#000000'), emissiveIntensity: .35 });
-      const bw = w * .5, bh = h * .5, hh = Math.max(.5, ht);
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(.14, hh * .9, .14, STL, sx * bw * .95, hh * .45, sz * bh * .95));                       // corner armour
-      g.add(box(w * .9, .05, .05, ACC, 0, hh * .6, bh * .98)); g.add(box(w * .9, .05, .05, ACC, 0, hh * .6, -bh * .98));                                   // accent band
-      g.add(cyl(.02, .02, hh * .9, matFor('#1a1c1e'), bw * .7, hh + hh * .45, -bh * .6, 'y'));                                                             // comms mast
-      if (tier >= 3) {
-        g.add(sph(.22, matFor('#d8dce0', { metalness: .3, roughness: .4 }), -bw * .6, hh + .2, -bh * .5)); g.add(cyl(.1, .14, .16, STL, -bw * .6, hh + .06, -bh * .5, 'y'));      // sensor dome
-        for (let i = 0; i < Math.max(1, Math.round(w)); i++) g.add(box(.42, .03, .34, matFor('#1e2a44', { metalness: .6, roughness: .25 }), -bw * .7 + i * .48, hh + .12, bh * .45, -.35, 0, 0));   // solar panels
-        g.add(box(w * .8, .05, .08, matFor('#fff2d0', { emissive: lin('#ffe6b0'), emissiveIntensity: 1.1 }), 0, hh * .92, bh * .99));                        // floodlight strip
+    if (tier >= 2) {
+      const t3 = tier >= 3, hw = w * .5, hh = h * .5, H = Math.max(.4, ht);
+      const STL = matFor(t3 ? '#8a9298' : '#5a6266', { metalness: .5, roughness: .45 }), ACC = matFor(t3 ? '#e8c85a' : '#c9cf8a', { emissive: lin(t3 ? '#8a7020' : '#000000'), emissiveIntensity: .35 });
+      const DKM = matFor('#1a1c1e', { metalness: .5, roughness: .4 }), SENS = matFor('#5ad0ff', { emissive: lin('#3ab0ff'), emissiveIntensity: 1.2 }), SOL = matFor('#1e2a44', { metalness: .6, roughness: .25 }), LED = matFor('#fff2d0', { emissive: lin('#ffe6b0'), emissiveIntensity: 1.1 });
+      const bagRow = (x0, x1, z, y) => { for (let x = x0; x <= x1; x += .36) { g.add(box(.34, .16, .2, BAGS, x, (y || 0) + .08, z)); g.add(box(.3, .14, .18, BAGS, x + .17, (y || 0) + .22, z)); } };
+      const mast = (x, z, len) => { g.add(cyl(.02, .02, len, DKM, x, H + len * .5, z, 'y')); if (t3) g.add(sph(.05, SENS, x, H + len, z)); };
+      const panels = (x0, z0, n, y) => { for (let i = 0; i < n; i++) g.add(box(.4, .03, .32, SOL, x0 + i * .46, y, z0, -.35, 0, 0)); };
+      if (b.t === 'hq') {
+        bagRow(-hw * .8, hw * .8 - .36, hh * .9); bagRow(-hw * .8, hw * .8 - .36, -hh * .9);                              // sandbag revetments front and back
+        g.add(box(w * .95, .05, .06, ACC, 0, H * .62, hh * .96)); mast(-hw * .6, -hh * .6, 1.6);
+        if (t3) { const radar = box(.7, .06, .16, STL, hw * .3, H + .55, hh * .3, 0, .6, .2); g.add(radar); g.add(cyl(.05, .05, .5, STL, hw * .3, H + .25, hh * .3, 'y')); g.userData.radar = radar; panels(-hw * .75, hh * .1, 3, H + .1); g.add(box(w * .8, .04, .08, LED, 0, H * .9, hh * .96)); }   // rotating radar, solar roof, floodlight strip
+      } else if (b.t === 'barracks') {
+        bagRow(-hw * .85, hw * .85 - .36, hh * .92); for (let i = 0; i < 3; i++) g.add(box(.3, .18, .3, STL, -hw * .5 + i * hw * .5, hh * .46 + .1, -hh * .1));   // revetment, roof AC units
+        g.add(box(w * .9, .04, .06, ACC, 0, .5, hh * .93));
+        if (t3) { const net = box(w * .9, .02, h * .8, matFor('#3e5230', { transparent: true, opacity: .6 }), 0, hh * .46 + .32, 0); g.add(net); for (const sx of [-hw * .85, hw * .85]) for (const sz of [-hh * .8, hh * .8]) g.add(cyl(.02, .02, hh * .46 + .32, DKM, sx, (hh * .46 + .32) * .5, sz, 'y')); mast(hw * .8, -hh * .8, 1.2); g.add(box(.2, .2, .2, LED, hw * .8, hh * .46 + .5, hh * .8)); }   // camo net on poles, mast, lamp
+      } else if (b.t === 'armory') {
+        const BW = w * .52, BX = -w * .23;
+        for (let i = 0; i < 3; i++) g.add(box(.22, .18, .22, matFor('#5a4a34', WOODM), BX + BW * .5 + .15, .09 + (i === 2 ? .18 : 0), -hh * .7 + (i % 2) * .25));   // ammo crates
+        g.add(box(BW * .9, .04, .06, ACC, BX, H * .55, hh * .49)); mast(BX - BW * .35, -hh * .4, 1.3);
+        if (t3) { g.add(box(BW * .9, .06, h * .9, STL, BX, H + .13, 0)); for (let i = 0; i < 8; i++) { const a = i / 8 * TAU; g.add(box(.22, .12, .14, BAGS, BX + Math.cos(a) * .32, H + .22, hh * .2 + Math.sin(a) * .32, 0, -a, 0)); } g.add(cyl(.02, .02, .4, BARREL, BX + .3, H + .34, hh * .2, 'x')); for (let i = 0; i < 3; i++) g.add(box(.05, .2, .05, DKM, BX - BW * .3 + i * BW * .3, H + .25, -hh * .3)); }   // steel roof, roof MG nest, vents
+      } else if (b.t === 'vbay') {
+        g.add(box(w * .9, .06, .08, STL, 0, H + .15, 0)); for (const sx of [-hw * .9, hw * .9]) g.add(box(.08, H + .15, .08, STL, sx, (H + .15) * .5, 0));           // overhead crane rail
+        for (let i = 0; i < 3; i++) g.add(cyl(.14, .14, .08, TIRE, -hw * .8, .04 + i * .08, hh * .8 - i * .02, 'y'));                                                  // tyre stack
+        g.add(box(w * .6, .04, .06, ACC, 0, H * .8, hh * .49));
+        if (t3) { for (let i = 0; i < 2; i++) g.add(cyl(.16, .16, .5, STL, hw * .75, .25, -hh * .7 + i * .4, 'y')); g.add(box(.22, .06, .22, DKM, -hw * .6, H + .2, -hh * .5)); g.add(sph(.05, SENS, -hw * .6, H + .28, -hh * .5)); panels(-hw * .5, -hh * .3, 3, H + .08); }   // fuel tanks, sensor, solar
+      } else if (b.t === 'refinery') {
+        g.add(cyl(.26, .26, H * .7, matFor('#6a6a58', PANEL), 0, H * .35, hh * .3, 'y')); g.add(box(w * .8, .04, .06, ACC, 0, H * .45, hh * .49));                     // third tank, band
+        if (t3) { g.add(cyl(.12, .14, H * .9, matFor('#3a352c', CONC), -hw * .5, H * 1.25, hh * .3, 'y')); for (let i = 0; i < 3; i++) g.add(cyl(.03, .03, w * .7, STL, 0, H * .75 + i * .12, -hh * .1, 'x')); g.add(sph(.05, matFor('#ff6a3a', { emissive: lin('#ff5020'), emissiveIntensity: 1.3 }), hw * .34, H * 1.72, hh * .26)); }   // second stack, pipe rack, beacon
+      } else if (b.t === 'turret') {
+        if (g.userData.gun) { g.userData.gun.add(box(.05, .3, .5, STL, .2, .08, 0)); if (t3) { g.userData.gun.add(cyl(.028, .034, .85, BARREL, .45, .04, .12, 'x')); g.userData.gun.add(cyl(.028, .034, .85, BARREL, .45, .04, -.12, 'x')); } }   // gun shield, twin barrels
+        for (let i = 0; i < 8; i++) { const a = i / 8 * TAU; g.add(box(.2, .12, .12, STL, Math.cos(a) * .82, .06, Math.sin(a) * .82, 0, -a, 0)); }                   // steel-lined ring
+        if (t3) { mast(-.5, -.5, .8); g.add(box(.16, .1, .16, DKM, .5, .5, -.5)); g.add(sph(.04, SENS, .5, .58, -.5)); }
+      } else if (b.t === 'mortarpit') {
+        g.add(cyl(.09, .1, .85, BARREL, -.3, .42, .3, 'z')); g.children[g.children.length - 1].rotation.z = .5;                                                        // second tube
+        for (let i = 0; i < 3; i++) g.add(box(.14, .18, .14, matFor('#6a6a4a'), .7 - i * .14, .09, -.6));
+        if (t3) { g.add(box(.6, .3, .4, matFor('#5a5a50', CONC), -.7, .15, -.6)); for (let i = 0; i < 12; i++) { const a = i / 12 * TAU; g.add(box(.3, .1, .14, STL, Math.cos(a) * 1.25, .05, Math.sin(a) * 1.25, 0, -a, 0)); } mast(.8, .8, .9); }   // ammo bunker, concrete lip, mast
+      } else if (b.t === 'tower') {
+        for (const s2 of [-1, 1]) { g.add(box(1.25, .2, .08, BAGS, 0, H + .16, s2 * .58)); g.add(box(.08, .2, 1.25, BAGS, s2 * .58, H + .16, 0)); }                    // sandbag parapet
+        g.add(box(.1, .1, .5, ACC, 0, H + .3, .58));
+        if (t3) { for (const s2 of [-1, 1]) { g.add(box(1.2, .4, .04, STL, 0, H + .45, s2 * .62)); g.add(box(.04, .4, 1.2, STL, s2 * .62, H + .45, 0)); } g.add(box(.3, .24, .3, DKM, .3, H + .82, .3)); mast(-.45, -.45, .9); }   // steel plating, searchlight housing
+      } else if (b.t === 'airbase') {
+        g.add(box(.5, .3, .28, matFor('#b0b4a0', PANEL), hw * .55, .2, hh * .7)); g.add(cyl(.1, .1, .5, matFor('#8a8f94'), hw * .55, .38, hh * .7, 'x'));               // fuel bowser
+        for (let i = 0; i < 8; i++) g.add(box(.05, .04, .05, LED, -hw * .8 + i * hw * .22, .07, hh * .55));                                                            // second row of edge lights
+        if (t3) { g.add(sph(.35, matFor('#d8dce0', { metalness: .3, roughness: .4 }), hw * .72, H * 2.5, -hh * .6)); g.add(cyl(.1, .14, .2, STL, hw * .72, H * 2.34, -hh * .6, 'y')); panels(-hw * .7, -hh * .82, 4, .3); }   // radome on the tower, solar row
+      } else if (g.userData.trench) {
+        const T = g.userData.trench; for (let i = 0; i < Math.round(T.iw / .36); i++) for (const s2 of [-1, 1]) g.add(box(.3, .14, .18, BAGS, -T.iw / 2 + .2 + i * .36, .36, s2 * (T.ih / 2 + .22)));   // higher parapet
+        if (t3) for (let i = 0; i < 3; i++) g.add(box(.12, .1, T.ih + .5, matFor('#6a5238', WOODM), -T.iw * .35 + i * T.iw * .35, .5, 0));                            // timber overhead beams
+      } else if (d.wall && b.t !== 'gate' && b.t !== 'fence') {
+        g.add(cyl(.09, .09, .9, matFor('#9aa0a8', { metalness: .6, roughness: .4, wireframe: true }), 0, H + .14, 0, 'x'));                                             // razor wire coil
+        if (t3) { g.add(box(.98, .1, .6, STL, 0, H + .05, 0)); g.add(box(.98, H * .5, .05, STL, 0, H * .3, .3)); }                                                      // concrete cap, steel plate
+      } else if (b.t === 'fence') {
+        g.add(cyl(.09, .09, .96, matFor('#9aa0a8', { metalness: .6, roughness: .4, wireframe: true }), 0, .84, 0, 'x'));                                                 // second wire
+        if (t3) { g.add(box(.08, .06, .08, SENS, 0, .9, 0)); }                                                                                                          // electrified insulator
+      } else if (b.t === 'gate') {
+        g.add(box(.9, H * .6, .06, STL, 0, H * .35, .3));                                                                                                                // steel plate
+        if (t3) { g.add(box(.9, .05, .05, ACC, 0, H * .95, .3)); g.add(box(.1, .1, .1, LED, .4, H * 1.05, .3)); }                                                       // barrier arm + lamp
+      } else if (b.t === 'flood') {
+        g.add(box(.32, .1, .19, matFor('#3a3e42', { metalness: .55, roughness: .45 }), -.64, 2.28, 0)); g.add(box(.26, .03, .14, LED, -.64, 2.22, 0)); g.add(cyl(.03, .03, .64, matFor('#3a3e42'), -.32, 2.28, 0, 'x'));   // second head
+        if (t3) { g.add(box(.3, .02, .2, SOL, 0, 2.42, 0, -.3, 0, 0)); g.add(sph(.03, SENS, 0, 2.36, 0)); }                                                             // solar top + dusk sensor
+      } else if (!d.trap) {
+        g.add(box(w * .8, .04, .06, ACC, 0, H * .6, hh * .96)); mast(-hw * .6, -hh * .6, 1.2);
       }
     }
-    // buildings read twice as big on the field (1-tile items — walls, fences, gates, traps, lamps — keep their real size so rows still line up)
     g.userData.bs = d.mw ? d.w / d.mw : 1;
     g.scale.setScalar(g.userData.bs);
     g.position.set(b.x * K, groundY(b.x, b.y), b.y * K);
@@ -10261,7 +10339,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     for (const b of G.builds) { let bm = buildMeshes.get(b.id); if (b.dead) { if (bm) { scene3.remove(bm.g); buildMeshes.delete(b.id); } continue; }
       // a wall whose neighbours changed, or a building that reached a new tier, is rebuilt so its shape reflects the new state
       if (bm && ((b.def.wall && b.t !== 'gate' && bm.g.userData.mask !== wallMask(b)) || (bm.g.userData.tier || 1) !== (b.tier || 1))) { scene3.remove(bm.g); buildMeshes.delete(b.id); bm = null; }
-      if (!bm) { bm = mkBuilding(b); buildMeshes.set(b.id, bm); } const g = bm.g; g.visible = b.x > vx0 - 200 && b.x < vx1 + 200 && b.y > vy0 - 300 && b.y < vy1 + 200; if (!g.visible) continue; g.position.set(b.x * K, groundY(b.x, b.y), b.y * K); { const bs = g.userData.bs || 1; g.scale.set(bs, bs * (b.done ? 1 : Math.max(.08, b.prog || 0)), bs); } if (b.moving) g.position.y += .3; if (bm.gun) bm.gun.rotation.y = -(b.ang || 0); if (b.sel) put(P.sel, b.x * K, groundY(b.x, b.y) + .04, b.y * K, -HPI, 0, 0, Math.max(b.w, b.h) * .7, Math.max(b.w, b.h) * .7, 1);
+      if (!bm) { bm = mkBuilding(b); buildMeshes.set(b.id, bm); } const g = bm.g; g.visible = b.x > vx0 - 200 && b.x < vx1 + 200 && b.y > vy0 - 300 && b.y < vy1 + 200; if (!g.visible) continue; g.position.set(b.x * K, groundY(b.x, b.y), b.y * K); { const bs = g.userData.bs || 1; g.scale.set(bs, bs * (b.done ? 1 : Math.max(.08, b.prog || 0)), bs); } if (b.moving) g.position.y += .3; if (bm.gun) bm.gun.rotation.y = -(b.ang || 0); if (g.userData.radar) g.userData.radar.rotation.y = G.t * 1.6; if (b.sel) put(P.sel, b.x * K, groundY(b.x, b.y) + .04, b.y * K, -HPI, 0, 0, Math.max(b.w, b.h) * .7, Math.max(b.w, b.h) * .7, 1);
       drawDamageState(b, g.position.x, g.position.y, g.position.z, b.w * .5, b.h * .5, (b.def.hgt || 30) * K * (g.userData.bs || 1));
       if (g.userData.trench) {                                                   // culvert: sits on the undisturbed surface, digs its pit once built, and shows the men lined up inside
         const T = g.userData.trench, bs = g.userData.bs || 1; g.position.y = surfY(b.x, b.y) + (b.moving ? .3 : 0);
@@ -10270,7 +10348,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
           const n = b.gar.length, span = T.iw * bs * .8, fy = g.position.y - T.D * bs * .5 + .03;   // waist-deep: the men stand on firing steps, heads and rifles over the parapet
           for (let i = 0; i < n; i++) { const u = b.gar[i]; if (!u || u.dead) continue; const M = rigFor(u); const S = M ? M.S : {};
             const ux = g.position.x - span * .5 + (n > 1 ? i / (n - 1) : .5) * span, uz = g.position.z + (i % 2 ? .18 : -.18) * bs;
-            drawFigure(ux, fy, uz, u.aimT !== undefined ? u.aimT : -HPI, 0, S, { kind: 'mil', gun: gunOf(u.t), scale: .92, limbs: u.limbs, id: u.id }); }
+            drawFigure(ux, fy, uz, u.aimT !== undefined ? u.aimT : -HPI, 0, S, { kind: 'mil', gun: gunOf(u.t), scale: .92, limbs: u.limbs, id: u.id, ut: u.t }); }
         }
       }
       if (g.userData.range && b.done) {                                          // research lab: five technicians test-fire on the range north of the building, each on their own rhythm
@@ -10315,9 +10393,9 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
         if (u.roping > 0 && u.ropeFrom) {                                        // sliding down the fast-rope
           const hh = (u.ropeFrom.def.alt || 150) * K * ALTK * (u.ropeFrom.altK === undefined ? 1 : u.ropeFrom.altK), ry = gy + Math.min(hh, u.roping * K * ALTK);
           put(P.cyl, x, gy + hh * .5, z, 0, 0, 0, .012, hh, .012, col3('#c8b890'));
-          drawFigure(x, ry, z, u.ang, 0, S, { kind: 'mil', gun: 'none', scale: .92, limbs: u.limbs, id: u.id, rope: 1 });
+          drawFigure(x, ry, z, u.ang, 0, S, { kind: 'mil', gun: 'none', scale: .92, limbs: u.limbs, id: u.id, rope: 1, ut: u.t });
         } else
-        drawFigure(x, gy, z, u.aimT !== undefined && u.def.veh ? u.aimT : u.ang, u.step || 0, S, { kind: 'mil', gun: gunOf(u.t), scale: .92, limbs: u.limbs, id: u.id });
+        drawFigure(x, gy, z, u.aimT !== undefined && u.def.veh ? u.aimT : u.ang, u.step || 0, S, { kind: 'mil', gun: gunOf(u.t), scale: .92, limbs: u.limbs, id: u.id, ut: u.t });
         if (u.sel) put(P.sel, x, gy + .04, z, -HPI, 0, 0, .5, .5, 1);
       }
     }
