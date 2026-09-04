@@ -2172,6 +2172,12 @@ const UDEF = {
     wep: { dmg: 6, rng: 165, cd: .065, spread: .13, spd: 980, kind: 'bullet', sfx: 'smg', casings: 1, sustain: true, mag: 32, reload: 2.1 },
     desc: 'Fast scout with an MP5. The only trooper who hauls supply on their own — they range out on their own initiative to find crates and bring them in.'
   },
+  medic: {
+    name: 'Medic', key: 'D', g: '🩺', hp: 100, spd: 66, r: 10, sight: 260, armor: 0, pop: 1,
+    cost: { s: 90, c: 10 }, time: 14, spr: 'support', healAura: 2.4,
+    wep: { dmg: 5, rng: 150, cd: .08, spread: .14, spd: 950, kind: 'bullet', sfx: 'smg', casings: 1, sustain: true, mag: 24, reload: 2.2 },
+    desc: 'Combat medic. Keeps patching up every friendly trooper within a couple of tiles while the fight goes on. Light sidearm only — keep them behind the line.'
+  },
   marksman: {
     name: 'Marksman', key: 'K', g: '🎯', hp: 96, spd: 56, r: 10, sight: 32 * 32, armor: 0, pop: 1, nightSight: true,
     cost: { s: 120, c: 40 }, time: 16, spr: 'marksman',
@@ -2327,8 +2333,8 @@ const BDEF = {
   },
   barracks: {
     name: 'Barracks', key: 'B', g: '🏚️', w: 3, h: 3, hgt: 64, hp: 950, armor: 2, cost: { s: 150, c: 0 }, time: 16,
-    col: ['#45503c', '#333c2c'], roof: '#57634a', light: 150, produces: ['rifleman', 'support', 'gunner', 'marksman', 'sniper', 'rocketeer', 'mortar'],
-    desc: 'Trains infantry, supply Support teams, marksmen, snipers and mortar crews. Right-click the map to set a rally point.'
+    col: ['#45503c', '#333c2c'], roof: '#57634a', light: 150, produces: ['rifleman', 'support', 'medic', 'gunner', 'marksman', 'sniper', 'rocketeer', 'mortar'],
+    desc: 'Trains infantry, supply Support teams, combat Medics, marksmen, snipers and mortar crews. Right-click the map to set a rally point.'
   },
   armory: {
     name: 'Armory', key: 'Y', g: '⚙️', w: 3, h: 3, hgt: 62, hp: 850, armor: 2, cost: { s: 180, c: 80 }, time: 18,
@@ -2627,7 +2633,8 @@ function chunkProps(cx, cy) {
   let p = propCache.get(k);
   if (p) return p;
   p = [];
-  for (let i = 0; i < 16; i++) {
+  // 56 candidate slots per chunk (was 16) → a much denser, more forested world
+  for (let i = 0; i < 56; i++) {
     const hx = hash2(cx * 91 + i * 7, cy * 53 + i * 13);
     const hy = hash2(cx * 37 + i * 3, cy * 71 + i * 19);
     const x = cx * CH + hx * CH, y = cy * CH + hy * CH;
@@ -2636,8 +2643,10 @@ function chunkProps(cx, cy) {
     const t = MAP.t[tileIdx(tx, ty)];
     const r = hash2(cx * 17 + i, cy * 29 + i * 5);
     let s = null;
-    if (t === T_FOREST) s = r < .78 ? 'tree' : 'bush';
-    else if (t === T_GRASS) { if (r < .42) s = r < .22 ? 'tree' : 'bush'; }
+    // slots beyond the original 16 only ever become trees (they exist to thicken the woods)
+    if (i >= 16) { if ((t === T_FOREST && r < .9) || (t === T_GRASS && r < .34) || (t === T_SWAMP && r < .3)) s = 'tree'; else continue; }
+    else if (t === T_FOREST) s = r < .78 ? 'tree' : 'bush';
+    else if (t === T_GRASS) { if (r < .42) s = r < .26 ? 'tree' : 'bush'; }
     else if (t === T_SWAMP) { if (r < .5) s = r < .3 ? 'bush' : 'tree'; }
     else if (t === T_SAND) { if (r < .16) s = 'rock'; }
     else if (t === T_DIRT) { if (r < .3) s = r < .14 ? 'rock' : 'bush'; }
@@ -2647,8 +2656,8 @@ function chunkProps(cx, cy) {
     else if (t === T_ROAD) { if (r < .12) s = 'wreck'; }
     if (!s) continue;
     p.push({
-      id: k * 32 + i, x, y, s, a: hash2(i, cx + cy) * TAU,
-      sc: s === 'tree' ? .8 + hash2(i * 3, cy) * .55 : (s === 'rock' ? .9 + hash2(i * 5, cx) * 1.5 : .8 + hash2(i * 5, cx) * .4),
+      id: k * 128 + i, x, y, s, a: hash2(i, cx + cy) * TAU,
+      sc: s === 'tree' ? 1.6 + hash2(i * 3, cy) * 1.1 : (s === 'rock' ? .9 + hash2(i * 5, cx) * 1.5 : .8 + hash2(i * 5, cx) * .4),   // trees drawn twice as big
       sh: s === 'tree' ? 14 : 9
     });
   }
@@ -4119,7 +4128,7 @@ function destroyBuilding(b) {
     else G.cur = keep;
   }
   else alertMsg(b.def.name + ' destroyed', '');
-  flashDamage();
+  // (no blood-red screen flash for a structure — that's reserved for your troops getting hurt)
 }
 
 /* launch a corpse away from a blast: it becomes an airborne, tumbling body
@@ -5370,6 +5379,22 @@ function updateUnits(dt) {
       }
     }
 
+    /* --- medic heal aura: every friendly trooper within a couple of tiles mends while the medic stands near --- */
+    if (u.def.healAura) {
+      u.healT = (u.healT || 0) - dt;
+      if (u.healT <= 0) {
+        u.healT = .5;
+        const R = u.def.healAura * TS; let healed = 0;
+        for (const v of G.units) {
+          if (v === u || v.dead || v.remote || v.def.veh || v.inside || v.hp >= v.maxHp || (v.owner || 0) !== (u.owner || 0)) continue;
+          if (dist2(v.x, v.y, u.x, u.y) > R * R) continue;
+          v.hp = Math.min(v.maxHp, v.hp + v.maxHp * .045); healed++;
+          if (Math.random() < .5) part('spark', v.x + rnd(-6, 6), v.y + rnd(-6, 6), 0, -20, .5, 1.2, '#8dffbe', { z: 6, vz: 24, glow: 1 });
+        }
+        if (healed) part('ring', u.x, u.y, 0, 0, .45, R * .5, '#8dffbe', { grow: R * .9, glow: 1 });
+      }
+    }
+
     /* --- engineer repair aura: 3x3 tiles around it --- */
     if (u.def.repairAura) {
       u.repairT -= dt;
@@ -5384,6 +5409,13 @@ function updateUnits(dt) {
           b.hp = Math.min(b.maxHp, b.hp + b.maxHp * .022);
           fixed++;
           if (Math.random() < .55) fxSpark(b.x + rnd(-14, 14), b.y + rnd(-10, 10), rnd(TAU), 2, '#7fd0ff');
+        }
+        // ...and it patches up any friendly vehicle in the same area
+        for (const v of G.units) {
+          if (v === u || v.dead || v.remote || !v.def.veh || v.hp >= v.maxHp || (v.owner || 0) !== (u.owner || 0)) continue;
+          if (dist2(v.x, v.y, u.x, u.y) > (R + v.r) * (R + v.r)) continue;
+          v.hp = Math.min(v.maxHp, v.hp + v.maxHp * .03); fixed++;
+          if (Math.random() < .6) fxSpark(v.x + rnd(-10, 10), v.y + rnd(-8, 8), rnd(TAU), 2, '#7fd0ff');
         }
         if (fixed) part('ring', u.x, u.y, 0, 0, .45, R * .5, '#7fd0ff', { grow: R * .9, glow: 1 });
       }
@@ -5568,11 +5600,12 @@ function unloadCargo(v) {
 }
 /* rotor wash: a turbulent ring of dust blown out from under a helicopter close to the ground, then carried off on the wind */
 function rotorWash(u, k, dt) {
-  const n = dt * (30 + 110 * k); if (Math.random() > n && n < 1) return;
+  // the downwash covers ~3x the ground area it used to: wider spawn ring, faster outward blast, bigger billowing puffs
+  const n = dt * (45 + 165 * k); if (Math.random() > n && n < 1) return;
   const m = Math.max(1, Math.round(n));
   for (let i = 0; i < m; i++) {
-    const a = rnd(TAU), sp = rnd(60, 230) * (.4 + k), sw = rnd(-1, 1) * 60;     // radial blast + a swirl component
-    part('dust', u.x + Math.cos(a) * rnd(4, 16), u.y + Math.sin(a) * rnd(4, 16) * .8, Math.cos(a) * sp - Math.sin(a) * sw, Math.sin(a) * sp * .8 + Math.cos(a) * sw, rnd(.7, 1.6), rnd(5, 9), 'rgba(168,158,140,1)', { z: rnd(0, 4), vz: rnd(4, 26), g: 6, grow: 26, drag: .93, wind: 1, a: .55 });
+    const a = rnd(TAU), sp = rnd(105, 400) * (.4 + k), sw = rnd(-1, 1) * 100;     // radial blast + a swirl component
+    part('dust', u.x + Math.cos(a) * rnd(7, 28), u.y + Math.sin(a) * rnd(7, 28) * .8, Math.cos(a) * sp - Math.sin(a) * sw, Math.sin(a) * sp * .8 + Math.cos(a) * sw, rnd(.9, 2.0), rnd(6, 12), 'rgba(168,158,140,1)', { z: rnd(0, 5), vz: rnd(4, 30), g: 6, grow: 44, drag: .93, wind: 1, a: .55 });
   }
   if (Math.random() < dt * 4 * k) part('leaf', u.x + rnd(-20, 20), u.y + rnd(-14, 14), rnd(-120, 120), rnd(-90, 90), rnd(.8, 1.5), rnd(1.2, 2.2), '#5e6a34', { z: rnd(2, 10), vz: rnd(20, 60), g: 120, vr: rnd(-10, 10), drag: .96, wind: 1 });
 }
@@ -6104,7 +6137,13 @@ function updateBuildings(dt) {
     b.hurt = Math.max(0, b.hurt - dt * 4);
     b.armT = Math.max(0, b.armT - dt);
     b.flick += dt * 6;
-    if (b.def.searchlight) b.beam += dt * .55;
+    if (b.def.searchlight) {
+      // the searchlight probes around the tower in random steps: hold a heading, then swing to a fresh one
+      if (b.beamTo === undefined) { b.beamTo = b.beam; b.beamT = rnd(.6, 2.2); }
+      b.beamT -= dt;
+      if (b.beamT <= 0) { b.beamTo = b.beam + rnd(-1, 1) * rnd(.6, 2.6); b.beamT = rnd(.8, 3.0); }
+      let da = b.beamTo - b.beam; b.beam += da * Math.min(1, dt * 2.2);
+    }
 
     if (!b.done) {
       const rate = (1 / b.def.time) * (0.34 + Math.min(3, b.builders) * .55);
@@ -6247,6 +6286,24 @@ function updateBullets(dt) {
       const list = G.hUnits.near(b.x, b.y, 26, _q2);
       for (const u of list) { if (u.dead || u.inside) continue; const rr = u.r + 3; if (dist2(u.x, u.y, b.x, b.y) < rr * rr) { hit = u; break; } }
       if (!hit) { const bb = buildingAtTile((b.x / TS) | 0, (b.y / TS) | 0); if (bb && !bb.dead && !bb.def.flat) hit = bb; }
+    }
+    // trees: a small-arms round stops in the trunk; vehicle guns, tank shells and the MG nest chew straight through and fell it
+    if (!hit && b.team === 1 && !b.fly && (b.kind === 'bullet' || b.kind === 'shell') && b.src && b.life > 0) {
+      const ps = chunkProps((b.x / CH) | 0, (b.y / CH) | 0);
+      for (let i = 0; i < ps.length; i++) {
+        const q = ps[i]; if (q.s !== 'tree' || G.deadProps.has(q.id)) continue;
+        const tr = 5 + q.sc * 3; if (dist2(q.x, q.y, b.x, b.y) >= tr * tr) continue;
+        const heavy = (b.src.kind === 'unit' && b.src.def && b.src.def.veh) || b.src.kind === 'build';
+        if (heavy) {
+          G.deadProps.set(q.id, G.t + rnd(45, 95)); fxDebris(q.x, q.y, 10, '#6a4a26');   // felled; regrows later like the others
+          for (let l = 0; l < 7; l++) part('leaf', q.x + rnd(-10, 10), q.y + rnd(-10, 10), rnd(-34, 34), rnd(-34, 34), rnd(.6, 1.3), rnd(1.5, 2.6), l & 1 ? '#4a7030' : '#6a8c3c', { z: rnd(12, 34), vz: rnd(20, 70), g: 200, drag: .95, wind: 1 });
+          if (typeof AU !== 'undefined' && AU.ui) AU.ui('build');
+        } else {
+          b.life = 0; fxSpark(b.x, b.y, b.ang + Math.PI, 2, '#8a6a40');
+          part('leaf', b.x, b.y, rnd(-22, 22), rnd(-22, 22), rnd(.4, .8), rnd(1.2, 2), '#4a7030', { z: 8, vz: 30, g: 200, drag: .95, wind: 1 });
+        }
+        break;
+      }
     }
     if (b.x < 0 || b.y < 0 || b.x > WW || b.y > WH) b.life = 0;
 
@@ -7771,6 +7828,17 @@ function updateWeather(dt) {
   }
   WX.flash = Math.max(0, WX.flash - dt * 5.5);
   if (WX.thunderT > 0) { WX.thunderT -= dt; if (WX.thunderT <= 0) { AU.boom(CAM.x + CAM.vw / 2, CAM.y + CAM.vh / 2 - 600, 2.2); addShake(CAM.x + CAM.vw / 2, CAM.y + CAM.vh / 2, 2.2); } }
+  // the ground soaks dark and glossy while it rains, then slowly dries out (read by the 3D terrain shader as uWet)
+  if (G.wet === undefined) G.wet = 0;
+  G.wet = WX.k > .1 ? Math.min(1, G.wet + dt * .10 * WX.k) : Math.max(0, G.wet - dt * .025);
+  // falling rain streaks across the view for the 3D renderer (wind-driven)
+  if (WX.k > .1 && G.parts.length < PMAX * .8) {
+    const n = Math.round(WX.k * 24);
+    for (let i = 0; i < n; i++) {
+      const x = CAM.x + rnd(-60, CAM.vw + 60), y = CAM.y + rnd(-60, CAM.vh + 60);
+      part('rain', x, y, G.wind.x * .6, G.wind.y * .6, .42, 1, '#a8c0d8', { z: rnd(150, 200), vz: -440, g: 0 });
+    }
+  }
   // splashes: tiny rings where drops hit the ground in view
   if (WX.k > .1 && G.parts.length < PMAX * .75) {
     const n = Math.round(WX.k * 16);
@@ -9140,16 +9208,18 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
   const groundY = (x, y) => Math.max(elevAtW(x, y), -.06);          // entities never sink below the water surface
   const terrMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: false, bumpMap: TEX.bump, bumpScale: .07 });
   terrMat.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { tGrass: { value: TEX.grass }, tSand: { value: TEX.sand }, tRock: { value: TEX.rock }, tRoad: { value: TEX.road }, tDirt: { value: TEX.dirt } });
+    Object.assign(sh.uniforms, { tGrass: { value: TEX.grass }, tSand: { value: TEX.sand }, tRock: { value: TEX.rock }, tRoad: { value: TEX.road }, tDirt: { value: TEX.dirt }, uWet: { value: 0 } });
+    terrMat.userData.sh = sh;   // kept so the rain system can drive uWet every frame
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 splat; attribute vec2 ex; varying vec4 vSplat; varying vec2 vEx;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSplat = splat; vEx = ex;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D tGrass, tSand, tRock, tRoad, tDirt; varying vec4 vSplat; varying vec2 vEx;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D tGrass, tSand, tRock, tRoad, tDirt; uniform float uWet; varying vec4 vSplat; varying vec2 vEx;')
       .replace('#include <map_fragment>', [
         'vec4 w = vSplat; float dw = vEx.x; float ws = max(1e-3, w.x + w.y + w.z + w.w + dw); w /= ws; dw /= ws;',
         'vec3 tg = texture2D(tGrass, vUv).rgb, ts = texture2D(tSand, vUv * 1.5).rgb, tr = texture2D(tRock, vUv * .8).rgb, tp = texture2D(tRoad, vUv * 1.2).rgb, td = texture2D(tDirt, vUv * 1.4).rgb;',
         'vec3 t = tg * w.x + ts * w.y + tr * w.z + tp * w.w + td * dw;',
         't = mix(t, td * .62, clamp(vEx.y, 0., 1.));',                   // crater floor: churned earth
-        'diffuseColor.rgb *= t * 2.0;'].join('\n'));
+        'diffuseColor.rgb *= t * 2.0 * (1.0 - uWet * 0.38);'].join('\n'))   // rain-soaked ground darkens
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor *= (1.0 - uWet * 0.7);');   // ...and turns glossy
     cloudHook(sh);
   };
   const CCOL = {}; for (const k in TERR) CCOL[k] = lin('rgb(' + TERR[k].join(',') + ')');
@@ -9210,7 +9280,9 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       const i = vIdx(vx, vy); let off = 0;
       if (d < 1) off = -depth * Math.pow(1 - d * d, 1.1);
       else off = depth * .18 * (1 - (d - 1) / .3);                              // rim of thrown-up earth
-      CRAT[i] = Math.max(-1.6, CRAT[i] + off); CRW[i] = Math.min(1, CRW[i] + Math.max(0, 1.25 - d) * 1.2);
+      // craters do NOT stack: a vertex is only ever as deep as the single deepest blast that hit it (one level)
+      if (off < 0) CRAT[i] = Math.min(CRAT[i], off); else if (CRAT[i] >= 0) CRAT[i] = Math.max(CRAT[i], off);
+      CRW[i] = Math.min(1, CRW[i] + Math.max(0, 1.25 - d) * 1.2);
     }
     const SEG = CT3 * RES;
     for (let cy2 = Math.floor((vy0 - 1) / SEG); cy2 <= Math.floor((vy1 + 1) / SEG); cy2++) for (let cx2 = Math.floor((vx0 - 1) / SEG); cx2 <= Math.floor((vx1 + 1) / SEG); cx2++) dropChunk(cx2, cy2);
@@ -9251,7 +9323,11 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
   const decalMat = t => new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   P.scorch = pool(DECALG, decalMat(TEX.scorch), 700, false);
   P.splat = TEX.splat.map(t => pool(DECALG, decalMat(t), 500, false));
-  const PER_FRAME = [P.box, P.cam, P.cloth, P.head, P.helm, P.cyl, P.metal, P.gore, P.ring, P.tracer, P.sel, P.shadow, P.scorch, P.canopy, P.bush, P.beam].concat(P.splat);
+  // grass blades: a thin box with its base at the origin, so it can tilt from the ground when trampled
+  const GRASSG = new THREE.BoxGeometry(.035, .32, .012); GRASSG.translate(0, .16, 0);
+  P.grass = pool(GRASSG, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide }), 4200, false);
+  const GRASSC = [lin('#5f8a3a'), lin('#4c7430'), lin('#6b9440')];
+  const PER_FRAME = [P.box, P.cam, P.cloth, P.head, P.helm, P.cyl, P.metal, P.gore, P.ring, P.tracer, P.sel, P.shadow, P.scorch, P.canopy, P.bush, P.beam, P.grass].concat(P.splat);
   const PROPS = [P.trunk, P.rock, P.barrel, P.wreck], foliage = [];
   const decalList = [];
   const c3Cache = new Map();
@@ -9530,7 +9606,14 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     else if (b.t === 'turret') { sandbagRing(g, .72, 11, .2); g.add(cyl(.5, .5, .04, matFor('#1e201b'), 0, .02, 0, 'y')); const gun = new THREE.Group(); gun.position.y = .42; for (let i = 0; i < 3; i++) gun.add(box(.03, .42, .03, TRACK, Math.cos(i * 2.1) * .12, -.2, Math.sin(i * 2.1) * .12)); gun.add(cyl(.028, .034, .85, BARREL, .45, .04, 0, 'x')); gun.add(box(.24, .14, .16, TRACK, 0, .04, 0)); gun.add(box(.1, .1, .08, matFor('#4a5a30'), -.05, .1, .1)); g.add(gun); g.userData.gun = gun; }
     else if (b.t === 'mortarpit') { sandbagRing(g, 1.15, 16, .2); g.add(cyl(.9, .9, .04, matFor('#3a352c', { map: TEX.dirt }), 0, .02, 0, 'y')); g.add(cyl(.09, .1, .85, BARREL, .12, .42, 0)); g.children[g.children.length - 1].rotation.z = .5; g.add(box(.6, .06, .6, TRACK, 0, .05, 0)); g.add(box(.04, .5, .04, TRACK, -.22, .3, .18, .4, 0, 0)); g.add(box(.04, .5, .04, TRACK, -.22, .3, -.18, -.4, 0, 0)); for (let i = 0; i < 4; i++) g.add(box(.12, .18, .12, matFor('#6a6a4a'), -.7 + i * .12, .09, .6)); }
     else if (b.t === 'tower') { const WD = matFor('#6a5a44', WOODM); for (const s of [[-.4, -.4], [.4, -.4], [-.4, .4], [.4, .4]]) g.add(box(.1, ht, .1, WD, s[0], ht / 2, s[1])); for (const yy of [ht * .33, ht * .66]) for (const s of [-1, 1]) { g.add(box(.9, .05, .05, WD, 0, yy, s * .4, 0, 0, 0)); g.add(box(.05, .05, .9, WD, s * .4, yy, 0)); } g.add(box(1.25, .1, 1.25, WD, 0, ht, 0)); for (const s of [-1, 1]) { g.add(box(1.25, .3, .05, WD, 0, ht + .2, s * .6)); g.add(box(.05, .3, 1.25, WD, s * .6, ht + .2, 0)); } for (const s of [[-.55, -.55], [.55, -.55], [-.55, .55], [.55, .55]]) g.add(box(.07, .9, .07, WD, s[0], ht + .45, s[1])); g.add(box(1.4, .08, 1.4, roof, 0, ht + .92, 0)); const lamp = box(.2, .2, .2, matFor('#eef4ff', { emissive: lin('#dfeeff'), emissiveIntensity: .8 }), 0, ht + .28, 0); g.add(lamp); g.userData.lamp = lamp; g.add(cyl(.03, .03, .7, BARREL, .3, ht + .4, .3, 'x')); }
-    else if (b.t === 'flood') { g.add(cyl(.05, .07, .1, TRACK, 0, .05, 0, 'y')); g.add(cyl(.03, .04, ht * 1.7, TRACK, 0, ht * .85, 0, 'y')); g.add(box(.36, .18, .2, matFor('#fff2d0', { emissive: lin('#ffe6b0'), emissiveIntensity: 1 }), .1, ht * 1.7, 0, 0, 0, -.5)); g.add(box(.1, .16, .24, TRACK, -.08, ht * 1.7, 0)); }
+    else if (b.t === 'flood') {
+      // street lamp: fluted base, tall pole, a curved arm carrying a cobra-head luminaire with a warm lens underneath
+      const POLE = matFor('#3a3e42', { metalness: .55, roughness: .45 }), H = 2.3;
+      g.add(cyl(.1, .13, .14, POLE, 0, .07, 0, 'y')); g.add(cyl(.035, .055, H, POLE, 0, H * .5, 0, 'y'));
+      g.add(cyl(.03, .03, .64, POLE, .32, H - .02, 0, 'x')); g.add(cyl(.03, .03, .22, POLE, .05, H - .13, 0, 'y'));   // arm + gusset
+      g.add(box(.32, .1, .19, POLE, .64, H - .02, 0));                                                                  // cobra head
+      const lens = box(.26, .03, .14, matFor('#fff2d0', { emissive: lin('#ffe6b0'), emissiveIntensity: 1.3 }), .64, H - .085, 0); g.add(lens); g.userData.lamp = lens;
+    }
     else if (b.t === 'airbase') {
       const W = w * 1.3, H = h * 1.3, TAR = matFor('#5e6166', { map: TEX.road, roughness: .95 });
       g.add(box(W, .05, H, TAR, 0, .03, 0));                                                                                     // apron
@@ -9566,12 +9649,17 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       for (let i = 0; i < 3; i++) g.add(cyl(.07, .07, .3, LABD, w * .2 + i * .25, ht + .2, -h * .3, 'y'));
       const win = matFor('#182028', { emissive: lin('#8fd0ff'), emissiveIntensity: 0, roughness: .3 }); g.userData.wins = win;
       for (let i = 0; i < 3; i++) g.add(box(.26, .26, .04, win, -w * .3 + i * w * .3, ht * .7, -h * .48 - .02));
-      // the test range beside the building (+x side): firing line, lane markers, sandbag butt with a target board
-      const rx = w * .5 + .35, LANE = 3.2;
-      g.add(box(.4, .03, .9, matFor('#3a3e42'), rx, .02, 0)); g.add(box(LANE, .02, .06, matFor('#e8e8dc'), rx + LANE * .5, .015, -.45)); g.add(box(LANE, .02, .06, matFor('#e8e8dc'), rx + LANE * .5, .015, .45));
-      for (let i = 0; i < 3; i++) g.add(box(.34, .2, .2, BAGS, rx + LANE + .2, .1 + i * .18, -.35 + i * .1)); for (let i = 0; i < 3; i++) g.add(box(.34, .2, .2, BAGS, rx + LANE + .2, .1 + i * .18, .35 - i * .1)); g.add(box(.34, .2, .5, BAGS, rx + LANE + .2, .5, 0));
-      g.add(box(.04, .5, .4, matFor('#e6e2d0'), rx + LANE, .5, 0)); g.add(box(.045, .34, .26, matFor('#2a2a2a'), rx + LANE - .005, .5, 0)); g.add(box(.05, .12, .1, RED, rx + LANE - .01, .52, 0));   // target board
-      g.add(box(.3, .1, .3, matFor('#5a4a34', WOODM), rx - .35, .05, .3)); g.userData.range = { x: rx, lane: LANE };
+      // the test range on the NORTH side (−z): a firing line, five lanes running north, each with a sandbag butt and target board
+      const rz = -(h * .5 + .35), LANE = 3.2, NL = 5, DX = .5;
+      g.add(box(NL * DX + .4, .03, .42, matFor('#3a3e42'), 0, .02, rz));                                      // firing-line pad
+      for (let i = 0; i <= NL; i++) g.add(box(.05, .02, LANE, matFor('#e8e8dc'), (i - NL / 2) * DX, .015, rz - LANE * .5));   // lane edge markers
+      for (let i = 0; i < NL; i++) {
+        const lx = (i - (NL - 1) / 2) * DX;
+        for (let k = 0; k < 3; k++) g.add(box(.34, .2, .2, BAGS, lx, .1 + k * .18, rz - LANE - .2));           // sandbag butt
+        g.add(box(.4, .5, .04, matFor('#e6e2d0'), lx, .5, rz - LANE)); g.add(box(.26, .34, .045, matFor('#2a2a2a'), lx, .5, rz - LANE + .005)); g.add(box(.1, .12, .05, RED, lx, .52, rz - LANE + .01));   // target board
+      }
+      g.add(box(.3, .1, .3, matFor('#5a4a34', WOODM), (NL / 2) * DX + .35, .05, rz + .3));                   // ammo crate at the end of the line
+      g.userData.range = { z: rz, lane: LANE, n: NL, dx: DX };
     } else {
       g.add(box(w * .96, ht, h * .96, wall, 0, ht / 2, 0)); g.add(box(w, .12, h, roof, 0, ht + .06, 0)); g.add(box(w * .96, .12, h * .96, trim, 0, .06, 0));
       const win = matFor('#182028', { emissive: lin('#ffc068'), emissiveIntensity: 0, roughness: .3 });
@@ -9582,6 +9670,8 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       if (b.t === 'vbay') { g.add(box(w * .6, ht * .72, .06, matFor('#c9a33d', { map: TEX.roof }), 0, ht * .36, h * .48 + .04)); g.add(box(w * .9, .1, .12, matFor('#8a8f94', PANEL), 0, ht * .95, h * .48 + .1)); for (let i = 0; i < 3; i++) g.add(cyl(.12, .12, .34, matFor(i ? '#8a3a2a' : '#4a5a30', { map: TEX.panel }), -w * .45 - .2, .17, -h * .3 + i * .3, 'y')); }
       if (b.t === 'refinery') { for (let i = 0; i < 2; i++) g.add(cyl(.32, .32, ht * .8, matFor(i ? '#6a7250' : '#7a6a4a', PANEL), -w * .28 + i * w * .56, ht * .4, -h * .26, 'y')); g.add(cyl(.14, .16, ht * 1.6, matFor('#3a352c', CONC), w * .34, ht * .8, h * .26, 'y')); g.add(cyl(.17, .14, .18, matFor('#2a2620'), w * .34, ht * 1.6, h * .26, 'y')); g.add(box(w * .5, ht * .22, h * .3, matFor('#5a5040', PANEL), 0, ht * .5, h * .18)); for (let i = 0; i < 4; i++) g.add(cyl(.02, .02, .5, matFor('#8a8f94'), -w * .3 + i * .2, ht + .25, h * .1, 'x')); }
     }
+    g.userData.bs = (b.t === 'barracks' || b.t === 'armory') ? 1.3 : b.t === 'airbase' ? 1.28 : 1;   // these read bigger on the field
+    g.scale.setScalar(g.userData.bs);
     g.position.set(b.x * K, groundY(b.x, b.y), b.y * K);
     scene3.add(g); return { g, wins: g.userData.wins, gun: g.userData.gun };
   }
@@ -9681,7 +9771,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
   const MEAT = c => { const v = rgbOf(c); return v[0] > v[1] * 1.8 || (v[1] > v[0] * 1.6 && v[1] > v[2] * 1.6); };   // red blood or spitter green
   function underBuild(x, y) { if (!G.baseBox || x < G.baseBox.x0 || x > G.baseBox.x1 || y < G.baseBox.y0 || y > G.baseBox.y1) return false; for (const b of G.builds) { if (b.dead) continue; if (Math.abs(x - b.x) < b.w * TS * .5 + 4 && Math.abs(y - b.y) < b.h * TS * .5 + 4) return true; } return false; }
   const ALTK = .42;                                                   // flight altitude in the 3D scene (fraction of the sim's px altitude) — keeps aircraft clear of the camera when zoomed in
-  const AIRSC = { littlebird: 1.02, blackhawk: .725, apache: .725, ac130: 3.1, f16: 1.45 };   // absolute model scales per airframe
+  const AIRSC = { littlebird: 1.02, blackhawk: 1.45, apache: .725, ac130: 3.1, f16: 1.45 };   // absolute model scales per airframe
   const gunOf = t => t === 'sniper' || t === 'marksman' ? 'long' : 'rifle';
   render = function () {
     if (mapStamp !== MAP.t || structStamp !== MAP.structs) { resetWorld(); mapStamp = MAP.t; structStamp = MAP.structs; lastPX = 1e9; }
@@ -9697,6 +9787,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     TEX.waterN.offset.x = G.t * .004; TEX.waterN.offset.y = G.t * .0025;
     const vx0 = CAM.x - 200, vx1 = CAM.x + CAM.vw + 200, vy0 = CAM.y - 300, vy1 = CAM.y + CAM.vh + 200;
     updateTerrain(Math.floor(vx0 * K / CT3) - 1, Math.floor(vy0 * K / CT3) - 1, Math.floor(vx1 * K / CT3) + 1, Math.floor(vy1 * K / CT3) + 1);
+    if (terrMat.userData.sh) terrMat.userData.sh.uniforms.uWet.value = G.wet || 0;   // rain-soaked ground
 
     /* ---- props: static parts (trunks, rocks, barrels, wrecks) refreshed when the camera moves; canopies + bushes every frame so they sway on the wind ---- */
     if (Math.abs(cxw - lastPX) > 48 || Math.abs(cyw - lastPY) > 48 || G.frame % 30 === 0 || lastNB !== G.builds.length) {
@@ -9726,19 +9817,39 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
           for (let k = 0; k < 3; k++) { const r = (1 - k * .18) * sc, an = k * 2.1 + q.a, hgt = (.8 + k * .2) * sc, kk = 1 + k * .5; put(P.canopy, x + Math.cos(an) * .22 * sc * (k ? 1 : 0) + lx * hgt * kk, y + hgt, z + Math.sin(an) * .22 * sc * (k ? 1 : 0) + lz * hgt * kk, rx * kk + an, an * .7, rz * kk, r, r * .85, r, LEAF[(v + k) % 5]); }
         } else { const lean = wm * (.04 + gust * .03); put(P.bush, x + wdx * lean * .3, y + .16 * sc, z + wdz * lean * .3, wdz * lean * 2, q.a, -wdx * lean * 2, sc, sc * .8, sc, BUSHC[q.id & 1]); }
       }
+      /* ---- grass blades: they sway on the wind, and lie flat (then slowly stand back up) where troops and vehicles have run through ---- */
+      const gtx0 = Math.max(0, (vx0 / TS) | 0), gtx1 = Math.min(MW - 1, (vx1 / TS) | 0), gty0 = Math.max(0, (vy0 / TS) | 0), gty1 = Math.min(MH - 1, (vy1 / TS) | 0);
+      const dense = (gtx1 - gtx0 + 1) * (gty1 - gty0 + 1) < 1400;   // zoomed in: 3 blades a tile; zoomed out: 1 (stay under the pool cap)
+      const per = dense ? 3 : 1;
+      outer: for (let ty = gty0; ty <= gty1; ty++) for (let tx = gtx0; tx <= gtx1; tx++) {
+        const ti = tileIdx(tx, ty), t = MAP.t[ti]; if (t !== T_GRASS && t !== T_FOREST && t !== T_SWAMP) continue; if (G.gridB[ti]) continue;
+        for (let k = 0; k < per; k++) {
+          if (P.grass.count >= 4190) break outer;
+          const h1 = hash2(tx * 3 + k * 5, ty * 7 + k), h2 = hash2(tx * 11 + k, ty * 13 + k * 3);
+          const wx = (tx + h1) * TS, wy = (ty + h2) * TS, flat = grassFlat(wx, wy);
+          const bh = (.16 + h1 * .18) * (1 - flat * .55);
+          let rx, rz;
+          if (flat > .04) { const dir = hash2(tx * 17 + k, ty * 19) * TAU; rx = Math.cos(dir) * 1.3 * flat; rz = Math.sin(dir) * 1.3 * flat; }   // pressed flat by whoever ran through
+          else { const ph = tt * 2.4 + wx * .02 + wy * .017, sway = wm * (.14 + Math.sin(ph) * .11); rx = wdz * sway; rz = -wdx * sway; }
+          put(P.grass, wx * K, groundY(wx, wy), wy * K, rx, h2 * TAU, rz, 1, bh / .32, 1, GRASSC[(tx + ty + k) % 3]);
+        }
+      }
     }
     /* ---- POI structures + invader camps/villages ---- */
     if (MAP.structs) for (let i = 0; i < MAP.structs.length; i++) { const s = MAP.structs[i]; const vis = s.x > vx0 - 200 && s.x < vx1 + 200 && s.y > vy0 - 200 && s.y < vy1 + 200; let m = structMeshes.get(s.id); if (vis && !m) { m = mkStruct(s); structMeshes.set(s.id, m); } if (m) { m.visible = vis; if (s.dead && !m.userData.dead) { m.userData.dead = 1; m.scale.set(1, .25, 1); m.rotation.z = .08; } } }
     /* ---- buildings ---- */
-    for (const b of G.builds) { let bm = buildMeshes.get(b.id); if (b.dead) { if (bm) { scene3.remove(bm.g); buildMeshes.delete(b.id); } continue; } if (!bm) { bm = mkBuilding(b); buildMeshes.set(b.id, bm); } const g = bm.g; g.visible = b.x > vx0 - 200 && b.x < vx1 + 200 && b.y > vy0 - 300 && b.y < vy1 + 200; if (!g.visible) continue; g.position.set(b.x * K, groundY(b.x, b.y), b.y * K); g.scale.y = b.done ? 1 : Math.max(.08, b.prog || 0); if (b.moving) g.position.y += .3; if (bm.gun) bm.gun.rotation.y = -(b.ang || 0); if (b.sel) put(P.sel, b.x * K, groundY(b.x, b.y) + .04, b.y * K, -HPI, 0, 0, Math.max(b.w, b.h) * .7, Math.max(b.w, b.h) * .7, 1);
-      if (g.userData.range && b.done) {                                          // research lab: a technician test-fires the latest rifle on the range beside the building
-        const R = g.userData.range, sx = b.x * K + R.x, sz = b.y * K, sy = g.position.y, M = MODEL.marksman || MODEL.rifleman; const S = M ? M.S : {};
-        const ph = (G.t * .8 + b.id * .37) % 1.7;
-        drawFigure(sx, sy, sz, 0, 0, S, { kind: 'mil', gun: 'long', scale: .92, limbs: 15, id: b.id + 7 });
-        const mx = sx + .62, my = sy + .42;
-        if (ph < .06) { bb(partsAdd, mx, my, sz, .32, 1, .9, .6, .9); put(P.tracer, mx + R.lane * .5, my, sz, 0, 0, 0, R.lane * .9, .02, .02); }
-        else if (ph < .16) bb(partsAdd, sx + R.lane - .03, sy + .5, sz + rnd(-.06, .06), .12 + (ph - .06) * 1.5, 1, .85, .5, (.16 - ph) * 8);
-        if (ph < .3) bb(partsAlpha, mx + .2 + ph * 1.5, my + ph * .5, sz, .18 + ph * .8, .75, .72, .66, .35 * (1 - ph / .3));
+    for (const b of G.builds) { let bm = buildMeshes.get(b.id); if (b.dead) { if (bm) { scene3.remove(bm.g); buildMeshes.delete(b.id); } continue; } if (!bm) { bm = mkBuilding(b); buildMeshes.set(b.id, bm); } const g = bm.g; g.visible = b.x > vx0 - 200 && b.x < vx1 + 200 && b.y > vy0 - 300 && b.y < vy1 + 200; if (!g.visible) continue; g.position.set(b.x * K, groundY(b.x, b.y), b.y * K); { const bs = g.userData.bs || 1; g.scale.set(bs, bs * (b.done ? 1 : Math.max(.08, b.prog || 0)), bs); } if (b.moving) g.position.y += .3; if (bm.gun) bm.gun.rotation.y = -(b.ang || 0); if (b.sel) put(P.sel, b.x * K, groundY(b.x, b.y) + .04, b.y * K, -HPI, 0, 0, Math.max(b.w, b.h) * .7, Math.max(b.w, b.h) * .7, 1);
+      if (g.userData.range && b.done) {                                          // research lab: five technicians test-fire on the range north of the building, each on their own rhythm
+        const R = g.userData.range, sy = g.position.y, M = MODEL.marksman || MODEL.rifleman; const S = M ? M.S : {};
+        for (let i = 0; i < R.n; i++) {
+          const sx = b.x * K + (i - (R.n - 1) / 2) * R.dx, sz = b.y * K + R.z;
+          const per = 1.3 + ((i * 7 + b.id) % 5) * .35, ph = (G.t * .8 + b.id * .37 + i * 1.13) % per;   // staggered, random-feeling cadence per lane
+          drawFigure(sx, sy, sz, -HPI, 0, S, { kind: 'mil', gun: 'long', scale: .92, limbs: 15, id: b.id + 7 + i });
+          const mz = sz - .62, my = sy + .42;                                  // muzzle, just north of the shooter
+          if (ph < .06) { bb(partsAdd, sx, my, mz, .32, 1, .9, .6, .9); put(P.tracer, sx, my, mz - R.lane * .5, 0, 0, 0, .02, .02, R.lane * .9); }
+          else if (ph < .16) bb(partsAdd, sx + rnd(-.06, .06), sy + .5, sz - R.lane + .03, .12 + (ph - .06) * 1.5, 1, .85, .5, (.16 - ph) * 8);
+          if (ph < .3) bb(partsAlpha, sx, my + ph * .5, mz - .2 - ph * 1.5, .18 + ph * .8, .75, .72, .66, .35 * (1 - ph / .3));
+        }
       } }
     for (const [id, bm] of buildMeshes) if (!G.builds.some(b => b.id === id)) { scene3.remove(bm.g); buildMeshes.delete(id); }
     /* ---- units ---- */
@@ -9747,7 +9858,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       if (u.dead || u.inside) continue; live.add(u.id);
       const vis = u.x > vx0 && u.x < vx1 && u.y > vy0 && u.y < vy1; const d = u.def, x = u.x * K, z = u.y * K, gy = groundY(u.x, u.y);
       if (d.veh) {
-        let um = unitMeshes.get(u.id); if (!um) { um = mkVehicle(d.spr); um.g.scale.setScalar(d.fly ? (AIRSC[d.spr] || 1.45) : (u.r * K) / .9 * (d.spr === 'abrams' ? 1.2 : d.spr === 'stryker' ? 1.5 : 1)); scene3.add(um.g); unitMeshes.set(u.id, um); }   // aircraft drawn at 3x
+        let um = unitMeshes.get(u.id); if (!um) { um = mkVehicle(d.spr); um.g.scale.setScalar(d.fly ? (AIRSC[d.spr] || 1.45) : (u.r * K) / .9 * (d.spr === 'abrams' ? 1.2 : d.spr === 'stryker' ? 1.2 : d.spr === 'humvee' ? 2.0 : 1)); scene3.add(um.g); unitMeshes.set(u.id, um); }   // aircraft drawn at 3x
         um.g.visible = vis; if (!vis) continue;
         const alt = d.fly ? (d.alt || 150) * K * ALTK * (u.altK === undefined ? 1 : u.altK) + (d.fly && u.altK !== undefined && u.altK < .02 ? .05 : 0) : 0; um.g.position.set(x, gy + alt, z);
         if (d.fly) { um.g.rotation.set(0, -u.ang, Math.sin(G.t * 2 + u.id) * .03); if (um.rotor) { um.rotor.rotation.z = (u.rot || G.t * 40); um.rotor.visible = !(u.landed && !u.order); } if (um.props) for (const pr of um.props) pr.rotation.x = G.t * 60; const asc = AIRSC[d.spr] || 1.45; put(P.shadow, x, gy + .03, z, -HPI, -u.ang, 0, asc * (d.spr === 'ac130' ? 1.3 : .9), asc * (d.spr === 'ac130' ? 1.5 : .55), 1, AIRSHADOW); }
@@ -9833,6 +9944,8 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       else if (k === 'gib') drawGib(p, x, gy + (p.z || 0) * K, z);
       else if (k === 'chunk') { if (p.col && MEAT(p.col)) put(P.gore, x, y, z, p.rot * 1.3, p.rot, p.rot * .7, r * .9, r * .7, r * .8, col3(p.col)); else put(P.box, x, y, z, p.rot * 1.1, p.rot, p.rot * .6, r * 1.2, r * .6, r * .9, col3(p.col || '#5a4028')); }
       else if (k === 'casing') put(P.cyl, x, y, z, p.rot, p.rot * 2, HPI, r * .3, r * 1.1, r * .3, col3('#c9a33d'));
+      else if (k === 'rain') put(P.cyl, x, y, z, .12, 0, 0, .012, .75, .012, col3('#a8c0d8'));   // falling streak
+      else if (k === 'splash') put(P.ring, x, gy + .05, z, -HPI, 0, 0, r * .5, r * .5, 1);
       else if (k === 'debris' || k === 'leaf') put(P.box, x, y, z, p.rot * 1.4, p.rot, p.rot * .5, r * 1.3, r * .3, r * .9, col3(p.col || '#4a423a'));
       else bb(partsAlpha, x, y, z, Math.max(.05, r * 1.4), c[0], c[1], c[2], Math.min(1, a * 2));
     }
