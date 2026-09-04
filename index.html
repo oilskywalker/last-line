@@ -8495,19 +8495,9 @@ let hudT = 0;
 function updateBuildPopup() {
   const el = $('bpop'); if (!el) return;
   const b = (G.sel.length === 1 && G.sel[0].kind === 'build' && !G.sel[0].dead) ? G.sel[0] : null;
-  if (b !== UI.popB) {
-    UI.popB = b;
-    if (!b) { el.style.display = 'none'; return; }
-    const r = cv.getBoundingClientRect(), k = (r.width || 1) / cv.width;
-    el.style.display = 'block';
-    // measure the real rendered size and clamp fully inside the viewport (never off any edge, even on a small phone)
-    const M = 8, pw = el.offsetWidth || 300, ph = el.offsetHeight || 300;
-    let px = IN.mx * k + 18, py = IN.my * k + 14;
-    px = Math.min(px, innerWidth - pw - M); if (px < M) px = M;
-    py = Math.min(py, innerHeight - ph - M); if (py < M) py = M;
-    el.style.left = px + 'px'; el.style.top = py + 'px';
-  }
-  if (!b) return;
+  const changed = (b !== UI.popB);
+  UI.popB = b;
+  if (!b) { el.style.display = 'none'; return; }
   const d = b.def, f = clamp(b.hp / b.maxHp, 0, 1);
   const rows = [];
   if (d.produces) rows.push(...d.produces.map(t => (UDEF[t] ? UDEF[t].name : t)));
@@ -8519,6 +8509,17 @@ function updateBuildPopup() {
     '<div class="hpw"><div class="hp" style="width:' + (f * 100) + '%;background:' + (f > .5 ? '#4de08c' : f > .25 ? '#ffb454' : '#ff5f5f') + '"></div></div>' +
     (rows.length ? '<div class="rows">' + rows.map(x => '<span>' + x + '</span>').join('') + '</div>' : '') +
     '<div class="d">' + (d.desc || '') + '</div>';
+  // position only on selection change — AFTER the content is in the DOM so the measured size is the real one,
+  // then clamp fully inside the viewport (never off any edge, even on a small phone)
+  if (changed) {
+    const r = cv.getBoundingClientRect(), k = (r.width || 1) / cv.width;
+    el.style.display = 'block';
+    const M = 8, pw = el.offsetWidth || 300, ph = el.offsetHeight || 300;
+    let px = IN.mx * k + 18, py = IN.my * k + 14;
+    px = Math.min(px, innerWidth - pw - M); if (px < M) px = M;
+    py = Math.min(py, innerHeight - ph - M); if (py < M) py = M;
+    el.style.left = px + 'px'; el.style.top = py + 'px';
+  }
 }
 function updateHUD(dt) {
   updateBuildPopup();
