@@ -3972,7 +3972,7 @@ function reindexBuildings() {
   G.gridB.fill(0);
   rebuildBGrid();
   for (let i = 0; i < G.builds.length; i++) {
-    const b = G.builds[i]; if (b.dead) continue;
+    const b = G.builds[i]; if (b.dead || b.remote) continue;   // ally ghost buildings never occupy my grid
     for (let y = b.ty; y < b.ty + b.h; y++) for (let x = b.tx; x < b.tx + b.w; x++) G.gridB[tileIdx(x, y)] = i + 1;
   }
 }
@@ -3992,6 +3992,13 @@ function damage(e, amt, srcAng, opts) {
   // god-mode cheat: your units and structures take no damage at all
   if (G.cheat.god && (e.kind === 'unit' || e.kind === 'build')) return;
   opts = opts || {};
+  // co-op: ghosts are owned by someone else. Never kill them locally — the owner is authoritative.
+  // For a host-owned enemy, tally the hit so the host can apply it and decide the kill.
+  if (e.remote) {
+    if (e.kind === 'zed' && !opts.net) { if (typeof NP !== 'undefined' && NP.on) NP.dmgOut[e.id] = (NP.dmgOut[e.id] || 0) + amt; e.hp = Math.max(1, e.hp - amt); }
+    e.hurt = .22;   // local hit-flash only
+    return;
+  }
   let a = amt;
   if (!opts.trueDmg) a = Math.max(1, a - (e.armor || 0));
   if (e.kind === 'unit' && e.inside) { if (e.inside.kind === 'unit') return; a *= .22; }   // troops inside a transport are shielded by its hull
@@ -4727,6 +4734,9 @@ const SPAWN_SITES = [[.14, .2], [.86, .2], [.14, .8], [.86, .8], [.5, .12], [.5,
 function checkVictory() {
   if (G.players.length < 2 || G.over) return;
   const alive = livingTeams();
+  // CO-OP: everyone on one team = survival vs the bots. No auto-win at kickoff; you only lose if the whole team falls.
+  const teamsAtStart = new Set(G.players.map(p => p.team));
+  if (teamsAtStart.size < 2) { if (alive.length === 0) gameOver('EVERYONE HAS FALLEN'); return; }
   if (!G.players[G.me].alive && G.mode !== 'spectate') { G.mode2 = 'spectate'; }
   if (alive.length === 1) { if (alive[0] === myTeam()) gameOver('VICTORY — TEAM ' + alive[0] + ' HOLDS THE FIELD'); else gameOver('DEFEAT — TEAM ' + alive[0] + ' HOLDS THE FIELD'); }
   else if (alive.length === 0) gameOver('EVERYONE HAS FALLEN');
@@ -4745,6 +4755,160 @@ function giveResource(toIdx, kind, amt) {
 }
 /* list of my living teammates (excludes me) */
 function myAllies() { const t = myTeam(); return G.players.map((p, i) => ({ p, i })).filter(o => o.i !== G.me && o.p.team === t && o.p.alive); }
+
+/* ============================ NETPLAY — real-time co-op ============================
+   The lobby is networked; this makes the MATCH networked too, without needing the sim
+   to be perfectly deterministic. Model:
+
+     • Each device simulates ONLY the units + buildings it owns, and broadcasts their
+       state ~5x/second to rooms/<code>/live/<myId>.
+     • Every device renders the other players' units/buildings as interpolated "ghosts"
+       (.remote = true). The sim skips ghosts (see the guards in 07_sim.js), so an ally
+       moving on their screen moves on yours — you finally see what your friend is doing.
+     • In co-op only the HOST spawns and simulates the enemy horde and broadcasts it;
+       everyone else renders the same enemies as ghosts that bite nearby local units.
+       A client's shots on a ghost enemy are tallied and sent to the host, who is the
+       single authority on when an enemy dies — so you really do fight it down together.
+
+   Nothing here runs in single-player or the local test (NP.on stays false).
+   ================================================================================ */
+const NP = {
+  on: false, host: true, sendT: 0.3, SEND: 0.18,
+  peers: {}, peerG: {}, zG: new Map(), dmgOut: {}
+};
+
+function npStart() {
+  NP.on = !!(G.mp && typeof NET !== 'undefined' && NET.transport && typeof LOBBY !== 'undefined' && LOBBY.room);
+  NP.host = (typeof amHost === 'function') ? !!amHost() : true;
+  NP.peers = {}; NP.peerG = {}; NP.zG = new Map(); NP.dmgOut = {}; NP.sendT = 0.3;
+  if (!NP.on) return;
+  if (typeof NET !== 'undefined') NET._stateCbs = [];   // fresh listener for this match
+  NET.onState((pid, snap) => { try { if (pid === LOBBY.myId) return; if (!snap) removePeer(pid); else reconcilePeer(pid, snap); } catch (e) { } });
+}
+
+function npTick(dt) {
+  if (!NP.on) return;
+  NP.sendT -= dt;
+  if (NP.sendT <= 0) { NP.sendT = NP.SEND; try { broadcastState(); } catch (e) { } }
+}
+
+/* ---- broadcast my own units/buildings (+ the horde, if I'm the host) ---- */
+function broadcastState() {
+  const U = [], B = [];
+  for (const u of G.units) { if (u.dead || u.remote || (u.owner || 0) !== G.me) continue; U.push([u.id, u.t, Math.round(u.x), Math.round(u.y), Math.round((u.ang || 0) * 100), Math.round(u.hp), u.inside ? 1 : 0]); }
+  for (const b of G.builds) { if (b.dead || b.remote || (b.owner || 0) !== G.me) continue; B.push([b.id, b.t, b.tx, b.ty, Math.round(b.hp), Math.round((b.prog || 0) * 100), b.done ? 1 : 0]); }
+  const snap = { u: U, b: B };
+  if (NP.host) {
+    const Z = [];
+    for (const z of G.zeds) { if (z.dead || z.remote || z.def.struct || z.def.worker) continue; Z.push([z.id, z.t, Math.round(z.x), Math.round(z.y), Math.round((z.ang || 0) * 100), Math.round(z.hp)]); }
+    snap.z = Z;
+  } else if (Object.keys(NP.dmgOut).length) { snap.dmg = NP.dmgOut; NP.dmgOut = {}; }
+  NET.publishState(snap);
+}
+
+/* ---- apply an incoming peer snapshot to ghost entities ---- */
+function reconcilePeer(pid, snap) {
+  const seats = LOBBY.room && LOBBY.room.seats; if (!seats) return;
+  const pIdx = seats.findIndex(s => s.id === pid); if (pIdx < 0) return;
+  let pg = NP.peerG[pid]; if (!pg) { pg = { u: new Map(), b: new Map() }; NP.peerG[pid] = pg; }
+
+  const seenU = new Set();
+  for (const a of (snap.u || [])) {
+    const id = a[0]; seenU.add(id); let g = pg.u.get(id);
+    if (!g || g.dead) { g = makeGhostUnit(a[1], a[2], a[3], pIdx); if (!g) continue; pg.u.set(id, g); }
+    g.tx2 = a[2]; g.ty2 = a[3]; g.tang2 = (a[4] || 0) / 100; g.hp = a[5]; if (g.hp > g.maxHp) g.maxHp = g.hp; g.inside = a[6] ? (g.inside || {}) : null;
+  }
+  for (const [id, g] of pg.u) { if (!seenU.has(id)) { g.dead = true; pg.u.delete(id); } }
+
+  const seenB = new Set();
+  for (const a of (snap.b || [])) {
+    const id = a[0]; seenB.add(id); let g = pg.b.get(id);
+    if (!g || g.dead) { g = makeGhostBuild(a[1], a[2], a[3], pIdx); if (!g) continue; pg.b.set(id, g); }
+    g.hp = a[4]; g.prog = (a[5] || 0) / 100; g.done = !!a[6]; if (g.hp > g.maxHp) g.maxHp = g.hp;
+  }
+  for (const [id, g] of pg.b) { if (!seenB.has(id)) { g.dead = true; pg.b.delete(id); } }
+
+  // the shared horde: only from the host, and only when I'm not the host
+  if (!NP.host && snap.z && pid === LOBBY.room.hostId) {
+    const seenZ = new Set();
+    for (const a of snap.z) {
+      const id = a[0]; seenZ.add(id); let g = NP.zG.get(id);
+      if (!g || g.dead) { g = makeGhostZed(a[1], a[2], a[3]); if (!g) continue; g.id = id; NP.zG.set(id, g); }
+      g.tx2 = a[2]; g.ty2 = a[3]; g.tang2 = (a[4] || 0) / 100; g.hp = a[5];
+    }
+    for (const [id, g] of NP.zG) { if (!seenZ.has(id)) { g.dead = true; NP.zG.delete(id); } }
+  }
+
+  // I'm the host: apply the damage this client's units dealt to my enemies (it decides nothing; I do)
+  if (NP.host && snap.dmg) { for (const k in snap.dmg) { const z = G.zeds.find(q => !q.remote && q.id == k); if (z) damage(z, snap.dmg[k], 0, { net: true }); } }
+}
+
+function removePeer(pid) {
+  const pg = NP.peerG[pid]; if (!pg) return;
+  for (const g of pg.u.values()) g.dead = true;
+  for (const g of pg.b.values()) g.dead = true;
+  delete NP.peerG[pid];
+}
+
+/* ---- ghost constructors (marked .remote so the sim leaves them alone) ---- */
+function makeGhostUnit(t, x, y, pIdx) {
+  if (!UDEF[t]) return null;
+  const cur = G.cur; G.cur = pIdx; let u;
+  try { u = spawnUnit(t, x, y, true); } finally { G.cur = cur; }
+  u.remote = true; u.owner = pIdx; u.tx2 = x; u.ty2 = y; u.order = null; u.target = null;
+  return u;
+}
+function makeGhostZed(t, x, y) {
+  const cur = G.cur; let z;
+  try { z = spawnZed(t, x, y); } finally { G.cur = cur; }
+  z.remote = true; z.tx2 = x; z.ty2 = y; z.gcd = rnd(.1, .5);
+  if (!z.def.struct && !z.def.worker) G.waveAlive = Math.max(0, G.waveAlive - 1);   // undo spawnZed's counter; the host owns wave tracking
+  return z;
+}
+function makeGhostBuild(t, tx, ty, pIdx) {
+  const d = BDEF[t]; if (!d) return null;
+  const b = {
+    id: G.uid++, kind: 'build', t, def: d, tx, ty, w: d.w, h: d.h,
+    x: (tx + d.w / 2) * TS, y: (ty + d.h / 2) * TS,
+    hp: d.hp, maxHp: d.hp, armor: d.armor, done: true, prog: 1, dead: false, sel: false,
+    q: [], qT: 0, rally: null, gar: [], cd: 0, target: null, ang: 0,
+    lr: d.light || 0, flick: rnd(TAU), hurt: 0, armT: 0, builders: 0, born: G.t,
+    beam: rnd(TAU), moving: false, ammo: d.wep ? (d.wep.mag || 0) : 0, reloadT: 0,
+    tier: 1, upgT: 0, owner: pIdx, remote: true
+  };
+  G.builds.push(b);
+  return b;
+}
+
+/* ---- per-frame smoothing of the ghosts (called from the sim loops) ---- */
+function npLerp(u, dt) {
+  if (u.tx2 == null) return;
+  const dx = u.tx2 - u.x, dy = u.ty2 - u.y, d = Math.hypot(dx, dy);
+  if (d > 320) { u.x = u.tx2; u.y = u.ty2; }
+  else { const k = Math.min(1, dt * 12); u.x += dx * k; u.y += dy * k; }
+  let da = (u.tang2 || 0) - (u.ang || 0); while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
+  u.ang = (u.ang || 0) + da * Math.min(1, dt * 10); u.tang = u.ang;
+  if (d > 1.5) { u.tread = (u.tread || 0) + dt * 6; u.step = (u.step || 0) + dt * 9; u.bob = (u.bob || 0) + dt * 6; }
+}
+function npGhostZed(z, dt) {
+  if (z.tx2 != null) {
+    const dx = z.tx2 - z.x, dy = z.ty2 - z.y, d = Math.hypot(dx, dy);
+    if (d > 420) { z.x = z.tx2; z.y = z.ty2; } else { const k = Math.min(1, dt * 12); z.x += dx * k; z.y += dy * k; }
+    if (d > 1.5) { z.step = (z.step || 0) + dt * 9; z.bob = (z.bob || 0) + dt * 6; }
+    let da = (z.tang2 || z.ang || 0) - (z.ang || 0); while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
+    z.ang = (z.ang || 0) + da * Math.min(1, dt * 8);
+  }
+  z.hurt = Math.max(0, (z.hurt || 0) - dt * 4);
+  // the shared enemy still bites whatever local unit of MINE is next to it
+  z.gcd = (z.gcd || 0) - dt;
+  if (z.gcd <= 0) {
+    let best = null, bd = 1e9;
+    for (const u of G.units) { if (u.dead || u.remote || u.inside || (u.owner || 0) !== G.me) continue; const dd = dist2(z.x, z.y, u.x, u.y); if (dd < bd) { bd = dd; best = u; } }
+    const reach = (z.r + 26);
+    if (best && bd < reach * reach) { z.gcd = .7; const dmg = (z.def && z.def.dmg) || 8; damage(best, dmg, Math.atan2(z.y - best.y, z.x - best.x)); }
+    else z.gcd = .25;
+  }
+}
 
 /* ============================ SIMULATION ============================ */
 
@@ -4885,16 +5049,18 @@ function updateTime(dt) {
     else alertMsg('Sunrise. The line held.', 'good');
     AU.ui('alarm');
   }
-  if (!G.waveQueue) {
-    G.waveT -= dt;
-    if (G.waveT <= 0) startWave();
-  } else {
-    G.waveQueue.t -= dt;
-    while (G.waveQueue.list.length && G.waveQueue.t <= 0) {
-      spawnWaveContact(G.waveQueue.list.pop());
-      G.waveQueue.t += G.waveQueue.gap;
+  if (!(typeof NP !== 'undefined' && NP.on && !NP.host)) {   // in co-op only the host spawns the shared horde; clients receive it over the wire
+    if (!G.waveQueue) {
+      G.waveT -= dt;
+      if (G.waveT <= 0) startWave();
+    } else {
+      G.waveQueue.t -= dt;
+      while (G.waveQueue.list.length && G.waveQueue.t <= 0) {
+        spawnWaveContact(G.waveQueue.list.pop());
+        G.waveQueue.t += G.waveQueue.gap;
+      }
+      if (!G.waveQueue.list.length) G.waveQueue = null;
     }
-    if (!G.waveQueue.list.length) G.waveQueue = null;
   }
   G.dropT -= dt;
   if (G.dropT <= 0) { callAirdrop(false); G.dropT = 52 + rnd(-6, 10); }
@@ -5124,6 +5290,7 @@ function updateUnits(dt) {
   for (let i = G.units.length - 1; i >= 0; i--) {
     const u = G.units[i];
     if (u.dead) { G.units.splice(i, 1); continue; }
+    if (u.remote) { if (typeof npLerp === 'function') npLerp(u, dt); continue; }   // ally unit — driven by its owner over the network, not simulated here
     G.cur = u.owner || 0;                                          // resources / research context of this unit's owner
     u.hurt = Math.max(0, u.hurt - dt * 4);
     u.cd -= dt; u.burstCd -= dt;
@@ -5764,6 +5931,7 @@ function updateZeds(dt) {
   for (let i = G.zeds.length - 1; i >= 0; i--) {
     const z = G.zeds[i];
     if (z.dead) { G.zeds.splice(i, 1); continue; }
+    if (z.remote) { if (typeof npGhostZed === 'function') npGhostZed(z, dt); continue; }   // host-owned enemy — position comes over the wire; it just bites nearby local units
 
     /* Far from both the camera and the player's holdings, a walker only needs
        to be updated occasionally — it steps five frames' worth at a time. */
@@ -5878,6 +6046,7 @@ function updateBuildings(dt) {
   for (let i = G.builds.length - 1; i >= 0; i--) {
     const b = G.builds[i];
     if (b.dead) { G.builds.splice(i, 1); reindexBuildings(); continue; }
+    if (b.remote) continue;                                        // ally structure — display only, its owner simulates it
     G.cur = b.owner || 0;
     b.hurt = Math.max(0, b.hurt - dt * 4);
     b.armT = Math.max(0, b.armT - dt);
@@ -6198,6 +6367,7 @@ function step(dt) {
   for (let pi = 0; pi < G.players.length; pi++) { G.cur = pi; if (G.hq && G.hq.done && !G.hq.dead) G.sup += 2.6 * dt; if (G.dropT !== undefined && G.players.length > 1 && pi !== G.me) { /* each command post schedules its own drops in updateTime */ } }
   G.cur = G.me;
   if (G.players.length > 1 && G.frame % 30 === 0) checkVictory();
+  if (typeof npTick === 'function') npTick(dt);                    // real-time co-op sync: broadcast my state, apply allies' + host's horde
   AU.ambient(G.night, clamp(G.waveAlive / 40, 0, 1));
 }
 
@@ -9696,10 +9866,16 @@ function newGame(opts) {
   G.bGrid.clear(); G.frame = 0; G.air.length = 0;
   genWorld(); makeMiniBase();
 
+  // in a networked co-op match each device simulates ONLY its own base + units; allies arrive as live "ghosts"
+  // over the wire, and only the host seeds the shared horde. (Single-player / local test build every player.)
+  const coop = G.mp && typeof LOBBY !== 'undefined' && LOBBY.room && typeof NET !== 'undefined' && NET.transport;
+  const iHost = !coop || (typeof amHost === 'function' && amHost());
+  if (typeof NP !== 'undefined') { NP.on = !!coop; NP.host = iHost; }
   // each player gets a levelled compound at a distinct spawn site (spread across the map in MP)
   let myHQ = null;
   const sites = G.mp ? G.players.map(p => { const sp = SPAWN_SITES[p.spawn % SPAWN_SITES.length]; return findSpawn(sp[0], sp[1]); }) : [[BASE_TX, BASE_TY, MAP.h[BASE_TY * MW + BASE_TX]]];
   for (let pi = 0; pi < G.players.length; pi++) {
+    if (coop && pi !== G.me) continue;                              // don't spawn allies locally — they come over the network
     G.cur = pi; const [tx, ty] = sites[pi];
     if (G.mp) levelCompound(tx, ty, sites[pi][2]);
     const hq = addBuilding('hq', tx - 2, ty - 2, true); G.players[pi].hq = hq; if (pi === G.me) myHQ = hq;
@@ -9714,8 +9890,10 @@ function newGame(opts) {
   G.cur = G.me; const hq = myHQ;
   BASE_TX = sites[G.me][0]; BASE_TY = sites[G.me][1]; BASE_X = BASE_TX * TS; BASE_Y = BASE_TY * TS;
 
-  if (G.mode === 'invaders') { setupInvaders(); }   // camps, villages + a roaming garrison
-  else seedWorld(280);        // zombie mode: the world is already full of them
+  if (iHost) {                                       // only the host seeds the shared enemy world in co-op
+    if (G.mode === 'invaders') { setupInvaders(); }  // camps, villages + a roaming garrison
+    else seedWorld(280);      // zombie mode: the world is already full of them
+  }
   rebuildBGrid();
   refreshCap();
   CAM.vw = scene.width / CAM.zoom; CAM.vh = scene.height / (CAM.zoom * VY);
@@ -9840,6 +10018,7 @@ function startGame(opts) {
   G.showcase = false;
   G.started = true;
   if (typeof applySpeedMode === 'function') applySpeedMode();   // hide the speed bar in multiplayer, lock to 1×
+  if (typeof npStart === 'function') npStart();                 // begin real-time co-op sync
   const creative = (opts && opts.diff === 'creative');
   openDev(creative);
   if (creative) refreshDevToggles();
@@ -10121,16 +10300,19 @@ const defaultCfg = () => ({ mode: 'invaders', enemy: 'medieval', diff: 'normal',
 const NET = {
   transport: null,                     // set by attachFirebase(...) or LOCAL_TRANSPORT
   isHost: false,
-  _roomCbs: [], _cmdCbs: [],
+  _roomCbs: [], _cmdCbs: [], _stateCbs: [],
   onRoom(cb) { this._roomCbs.push(cb); },
   onCmd(cb) { this._cmdCbs.push(cb); },
+  onState(cb) { this._stateCbs.push(cb); },
   _emitRoom(r) { for (const cb of this._roomCbs) cb(r); },
   _emitCmd(c) { for (const cb of this._cmdCbs) cb(c); },
+  _emitState(id, s) { for (const cb of this._stateCbs) cb(id, s); },
   host(code) { this.isHost = true; (this.transport || LOCAL_TRANSPORT).host(code); },
   join(code) { this.isHost = false; (this.transport || LOCAL_TRANSPORT).join(code); },
   publishRoom(r) { (this.transport || LOCAL_TRANSPORT).publishRoom(r); },       // host writes the authoritative room
   publishCmd(c) { (this.transport || LOCAL_TRANSPORT).publishCmd(c); },          // any player broadcasts an order/command
-  leave() { const t = this.transport || LOCAL_TRANSPORT; if (t.leave) t.leave(); this._roomCbs = []; this._cmdCbs = []; }
+  publishState(s) { const t = this.transport || LOCAL_TRANSPORT; if (t.publishState) t.publishState(s); },   // live per-client match state (co-op sync)
+  leave() { const t = this.transport || LOCAL_TRANSPORT; if (t.leave) t.leave(); this._roomCbs = []; this._cmdCbs = []; this._stateCbs = []; }
 };
 /* LOCAL transport: single-tab loopback for testing the lobby (no real remote peers) */
 const LOCAL_TRANSPORT = {
@@ -10138,6 +10320,7 @@ const LOCAL_TRANSPORT = {
   join(code) { /* would fetch the room; locally we cannot see another tab */ },
   publishRoom(r) { LOBBY.room = r; setTimeout(() => NET._emitRoom(r), 0); },
   publishCmd(c) { setTimeout(() => NET._emitCmd(c), 0); },
+  publishState() { },
   leave() { }
 };
 
@@ -10168,7 +10351,7 @@ const mySeat = () => LOBBY.room && LOBBY.room.seats.find(s => s.id === LOBBY.myI
 const amHost = () => LOBBY.room && LOBBY.room.hostId === LOBBY.myId;
 
 function bindRoom() {
-  NET._roomCbs = []; NET._cmdCbs = [];   // fresh handlers each time we enter a lobby (no double-binding on re-host/re-join)
+  NET._roomCbs = []; NET._cmdCbs = []; NET._stateCbs = [];   // fresh handlers each time we enter a lobby (no double-binding on re-host/re-join)
   NET.onRoom(r => { if (!r) return; LOBBY.room = r;
     if (LOBBY.joinPending) { LOBBY.joinPending = false; clearTimeout(LOBBY.joinTimer); if (!amHost() && !r.seats.some(s => s.id === LOBBY.myId)) NET.publishCmd({ t: 'join', id: LOBBY.myId, name: playerName() }); }   // valid room found → make sure we have a seat
     if (LOBBY.stage === 'loading') { renderLoad(); tryStartMatch(); } else renderLobby(); if (r.started && LOBBY.stage !== 'loading' && LOBBY.stage !== 'game') beginLoading(); });
@@ -10337,13 +10520,18 @@ function alertLobby(m) { const n = $('mpNote'); if (n) { n.textContent = m; n.st
 ------------------------------------------------------------------ */
 function firebaseTransport(db) {
   // db = firebase.database(). One node per room: rooms/<CODE>/{room, cmds, presence}
-  let base, roomRef, cmdRef, presRef, myPresRef, presCount = 0, startAt = 0; const seen = new Set();
+  let base, roomRef, cmdRef, presRef, myPresRef, liveRef, myLiveRef, presCount = 0, startAt = 0; const seen = new Set();
   return {
     _init(code) {
       base = db.ref('rooms/' + code); roomRef = base.child('room'); cmdRef = base.child('cmds'); presRef = base.child('presence');
+      liveRef = base.child('live'); myLiveRef = liveRef.child(LOBBY.myId); myLiveRef.onDisconnect().remove();
       startAt = Date.now();
       // presence: mark myself online, auto-removed by the server the instant I disconnect
       myPresRef = presRef.child(LOBBY.myId); myPresRef.set(Date.now()); myPresRef.onDisconnect().remove();
+      // live in-match state: each client owns rooms/<code>/live/<id>; everyone listens for real-time co-op sync
+      const emitLive = s => { const v = s.val(); if (v) NET._emitState(s.key, v); };
+      liveRef.on('child_added', emitLive); liveRef.on('child_changed', emitLive);
+      liveRef.on('child_removed', s => NET._emitState(s.key, null));
       roomRef.on('value', s => { const v = s.val(); if (v) NET._emitRoom(v); });
       // dedupe by the command's own DB key (never by timestamp — two cmds in the same ms could otherwise drop one,
       // e.g. the final loaded:100), and skip commands from before we connected so historical replay can't re-fire.
@@ -10376,7 +10564,8 @@ function firebaseTransport(db) {
     join(code) { this._init(code); NET.publishCmd({ t: 'join', id: LOBBY.myId, name: playerName() }); },
     publishRoom(r) { if (roomRef) roomRef.set(r); },
     publishCmd(c) { if (!cmdRef) return; c._n = Date.now() + Math.random(); cmdRef.push(c); },
-    leave() { if (myPresRef) myPresRef.remove(); if (base) { base.child('presence').once('value', s => { if (!s.val() || Object.keys(s.val()).length === 0) base.remove(); }); } if (roomRef) roomRef.off(); if (cmdRef) cmdRef.off(); if (presRef) presRef.off(); }
+    publishState(s) { if (myLiveRef) myLiveRef.set(s); },
+    leave() { if (myLiveRef) myLiveRef.remove(); if (myPresRef) myPresRef.remove(); if (base) { base.child('presence').once('value', s => { if (!s.val() || Object.keys(s.val()).length === 0) base.remove(); }); } if (roomRef) roomRef.off(); if (cmdRef) cmdRef.off(); if (presRef) presRef.off(); if (liveRef) liveRef.off(); }
   };
 }
 /* auto-activate Firebase if the SDK + config were injected in the page head */
