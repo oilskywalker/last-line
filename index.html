@@ -8002,6 +8002,14 @@ function gameOver(reason) {
 /* ---------------- selection ---------------- */
 function clearSel() { for (const e of G.sel) e.sel = false; G.sel.length = 0; }
 function setSel(arr) { clearSel(); for (const e of arr) { e.sel = true; G.sel.push(e); } refreshCard(true); }
+/* tapping/clicking empty space closes every floating panel: deselect, hide the structure card + tooltip */
+function dismissPopups() {
+  clearSel(); refreshCard(true);
+  if (typeof hideTip === 'function') hideTip();
+  const bp = document.getElementById('bpop'); if (bp) bp.style.display = 'none'; UI.popB = null;
+  if (typeof syncTools === 'function') syncTools();
+}
+window.dismissPopups = dismissPopups;
 function addSel(arr) { for (const e of arr) if (!e.sel) { e.sel = true; G.sel.push(e); } refreshCard(true); }
 
 let effY = e => e.y - (e.def && e.def.fly ? (e.def.alt || 150) * (e.altK === undefined ? 1 : e.altK) : 0);   // where an aircraft is drawn (the 3D renderer overrides this for its own projection)
@@ -8602,7 +8610,7 @@ window.addEventListener('mouseup', e => {
           } else if (e.shiftKey) { if (t.sel) { t.sel = false; G.sel.splice(G.sel.indexOf(t), 1); refreshCard(true); } else addSel([t]); }
           else setSel([t]);
           IN.lastClick = now; IN.lastSel = t;
-        } else if (!e.shiftKey) { clearSel(); refreshCard(true); }
+        } else if (!e.shiftKey) { dismissPopups(); }
       }
     }
     IN.dragging = false; IN.down = false;
@@ -10368,10 +10376,10 @@ function attachFirebaseIfPresent() {
           setSel(G.units.filter(u => !u.dead && !u.inside && isMine(u) && u.t === t.t && u.x > CAM.x && u.x < CAM.x + CAM.vw && u.y > CAM.y && u.y < CAM.y + CAM.vh));
         } else setSel([t]);
         IN.lastClick = now; IN.lastSel = t;
-      } else if (G.sel.some(u => u.kind === 'unit' || (u.kind === 'build' && u.def.produces))) {
+      } else if (G.sel.some(u => u.kind === 'unit')) {
         if (IN.amArm) { const wasAM = UI.attackMove; UI.attackMove = true; issueOrder(s2wx(x, y), s2wy(y, x), false, false); UI.attackMove = wasAM; IN.amArm = false; syncTools(); popText(s2wx(x, y), s2wy(y, x) - 10, 'ATTACK-MOVE', '#ff8a6a'); }
         else issueOrder(s2wx(x, y), s2wy(y, x), false, false);  // move / rally / attack
-      } else { clearSel(); refreshCard(true); }
+      } else { dismissPopups(); }   // empty tap with no units selected (or only a building) → close every popup
     }
     IN.dragging = false; IN.down = false; mode = null;
   }, { passive: false });
