@@ -10034,16 +10034,23 @@ const LOCAL_TRANSPORT = {
 /* ---------------- lobby lifecycle ---------------- */
 function lobbyHost(local) {
   if (!local && !NET.transport) attachFirebaseIfPresent();     // make sure the realtime channel is attached before hosting
-  LOBBY.code = randCode(); LOBBY.myId = uid(); LOBBY.hostId = LOBBY.myId; LOBBY.local = !!local;
+  LOBBY.code = randCode(); LOBBY.myId = uid(); LOBBY.hostId = LOBBY.myId; LOBBY.local = !!local; LOBBY.loadPct = {}; LOBBY.stage = null; clearInterval(LOBBY.loadTimer);
   LOBBY.room = { code: LOBBY.code, hostId: LOBBY.myId, cfg: defaultCfg(), seats: [seat(LOBBY.myId, playerName())], started: false };
   if (local) { for (let i = 1; i < 2; i++) LOBBY.room.seats.push(seat(uid(), 'Player ' + (i + 1), i)); }   // one extra local seat to demo teams
   bindRoom(); NET.host(LOBBY.code); NET.publishRoom(LOBBY.room); openLobby();   // write the room to the DB right away so joiners see it
 }
 function lobbyJoin(code) {
   if (!NET.transport) attachFirebaseIfPresent();
-  LOBBY.code = code.toUpperCase(); LOBBY.myId = uid(); LOBBY.local = false;
+  LOBBY.code = code.toUpperCase(); LOBBY.myId = uid(); LOBBY.local = false; LOBBY.room = null; LOBBY.loadPct = {}; LOBBY.stage = null; clearInterval(LOBBY.loadTimer);
   bindRoom(); NET.join(LOBBY.code); openLobby();
-  // in a real transport the host adds our seat on receiving a join; locally there is no host tab
+  // in a real transport the host adds our seat on receiving a join; locally there is no host tab.
+  // if no room with this code ever answers, the code is wrong / the host is gone → tell the player.
+  LOBBY.joinPending = true; clearTimeout(LOBBY.joinTimer);
+  LOBBY.joinTimer = setTimeout(() => {
+    if (!LOBBY.joinPending) return;
+    LOBBY.joinPending = false;
+    if (!LOBBY.room) { NET.leave(); LOBBY.open = false; LOBBY.stage = null; mpShow('mp-home'); alertLobby('Room "' + LOBBY.code + '" not found — check the code'); }
+  }, 6000);
 }
 function seat(id, name, spawn) { return { id, name, team: 'ABCDEF'[spawn || 0] === undefined ? 'A' : 'ABCD'[(spawn || 0) % 4], spawn: spawn || 0, ready: false, loaded: 0, t: Date.now() }; }
 function playerName() { try { return localStorage.getItem('ll_name') || ('Cmdr-' + (Math.random() * 900 + 100 | 0)); } catch (e) { return 'Cmdr'; } }
@@ -10051,10 +10058,13 @@ const mySeat = () => LOBBY.room && LOBBY.room.seats.find(s => s.id === LOBBY.myI
 const amHost = () => LOBBY.room && LOBBY.room.hostId === LOBBY.myId;
 
 function bindRoom() {
-  NET.onRoom(r => { if (!r) return; LOBBY.room = r; if (LOBBY.stage === 'loading') { renderLoad(); tryStartMatch(); } else renderLobby(); if (r.started && LOBBY.stage !== 'loading' && LOBBY.stage !== 'game') beginLoading(); });
+  NET._roomCbs = []; NET._cmdCbs = [];   // fresh handlers each time we enter a lobby (no double-binding on re-host/re-join)
+  NET.onRoom(r => { if (!r) return; LOBBY.room = r;
+    if (LOBBY.joinPending) { LOBBY.joinPending = false; clearTimeout(LOBBY.joinTimer); if (!amHost() && !r.seats.some(s => s.id === LOBBY.myId)) NET.publishCmd({ t: 'join', id: LOBBY.myId, name: playerName() }); }   // valid room found → make sure we have a seat
+    if (LOBBY.stage === 'loading') { renderLoad(); tryStartMatch(); } else renderLobby(); if (r.started && LOBBY.stage !== 'loading' && LOBBY.stage !== 'game') beginLoading(); });
   NET.onCmd(c => { if (c.t === 'ready') { const st = LOBBY.room.seats.find(s => s.id === c.id); if (st) { st.ready = c.v; if (amHost()) NET.publishRoom(LOBBY.room); } renderLobby(); }
     else if (c.t === 'join' && amHost()) { if (LOBBY.room.seats.length < 6 && !LOBBY.room.seats.find(s => s.id === c.id)) { LOBBY.room.seats.push(seat(c.id, c.name, LOBBY.room.seats.length)); NET.publishRoom(LOBBY.room); } }
-    else if (c.t === 'loaded') { const st = LOBBY.room.seats.find(s => s.id === c.id); if (st) { st.loaded = c.v; if (amHost()) NET.publishRoom(LOBBY.room); } renderLoad(); tryStartMatch(); }
+    else if (c.t === 'loaded') { LOBBY.loadPct = LOBBY.loadPct || {}; LOBBY.loadPct[c.id] = Math.max(LOBBY.loadPct[c.id] || 0, c.v || 0); renderLoad(); tryStartMatch(); }   // progress tracked in a monotonic map, not the room snapshot (snapshots would clobber it)
     else if (c.t === 'seat') { const st = LOBBY.room.seats.find(s => s.id === c.id); if (st) { if (c.team) st.team = c.team; if (c.spawn !== undefined) st.spawn = c.spawn; if (c.name) st.name = c.name; if (amHost()) NET.publishRoom(LOBBY.room); } renderLobby(); }
     else if (c.t === 'begin') beginLoading(); });
 }
@@ -10153,31 +10163,35 @@ function pushSeat(s) { if (amHost()) NET.publishRoom(LOBBY.room); else NET.publi
 /* ---------------- loading gate: everyone loads to 100% before the match starts ---------------- */
 function beginLoading() {
   if (LOBBY.stage === 'loading' || LOBBY.stage === 'game') return;
-  LOBBY.stage = 'loading'; mpShow('loading'); renderLoad();
-  const my = mySeat(); if (my) my.loaded = 0;
-  // simulate the deterministic world build progressing to 100% (real transports report actual asset/gen progress)
+  LOBBY.stage = 'loading'; LOBBY.loadPct = LOBBY.loadPct || {};
+  for (const s of LOBBY.room.seats) if (LOBBY.loadPct[s.id] == null) LOBBY.loadPct[s.id] = 0;   // show the whole roster at 0 right away
+  mpShow('loading'); renderLoad();
+  // simulate the deterministic world build progressing to 100% (real transports report actual asset/gen progress).
+  // progress is broadcast as monotonic 'loaded' commands and tracked in LOBBY.loadPct on EVERY client, so each client
+  // independently knows when all seats are done — no dependence on the host echoing a room snapshot back.
   let p = 0; clearInterval(LOBBY.loadTimer);
   LOBBY.loadTimer = setInterval(() => {
     p = Math.min(100, p + 8 + Math.random() * 14);
-    if (my) my.loaded = p | 0;
-    // local/host has no remote peers reporting in — advance every seat together so the gate can clear
-    if (LOBBY.local) for (const s of LOBBY.room.seats) s.loaded = p | 0;
+    LOBBY.loadPct[LOBBY.myId] = Math.max(LOBBY.loadPct[LOBBY.myId] || 0, p | 0);
+    if (LOBBY.local) for (const s of LOBBY.room.seats) LOBBY.loadPct[s.id] = p | 0;   // single-tab test: advance every seat together
     NET.publishCmd({ t: 'loaded', id: LOBBY.myId, v: p | 0 });
-    renderLoad();
-    if (p >= 100) { clearInterval(LOBBY.loadTimer); tryStartMatch(); }
+    renderLoad(); tryStartMatch();
+    if (p >= 100) clearInterval(LOBBY.loadTimer);   // keep re-checking via incoming 'loaded' cmds until everyone is done
   }, 180);
 }
 function renderLoad() {
-  if (!LOBBY.room) return; const el = $('loadList'); if (!el) return; el.innerHTML = '';
+  if (!LOBBY.room) return; const el = $('loadList'); if (!el) return; el.innerHTML = ''; const pct = LOBBY.loadPct || {};
   for (const s of LOBBY.room.seats) {
+    const v = pct[s.id] || 0;
     const row = document.createElement('div'); row.className = 'loadrow';
-    row.innerHTML = '<div class="nm" style="color:' + (TEAM_COL[s.team] || '#ccc') + '">' + s.name + '</div><div class="bar"><div class="fill" style="width:' + (s.loaded || 0) + '%"></div></div><div class="pc">' + (s.loaded || 0) + '%</div>';
+    row.innerHTML = '<div class="nm" style="color:' + (TEAM_COL[s.team] || '#ccc') + '">' + s.name + '</div><div class="bar"><div class="fill" style="width:' + v + '%"></div></div><div class="pc">' + v + '%</div>';
     el.appendChild(row);
   }
 }
 function tryStartMatch() {
   if (!LOBBY.room || LOBBY.stage === 'game') return;
-  if (!LOBBY.room.seats.every(s => (s.loaded || 0) >= 100)) return;   // wait for everyone
+  const pct = LOBBY.loadPct || {};
+  if (!LOBBY.room.seats.every(s => (pct[s.id] || 0) >= 100)) return;   // wait for everyone
   LOBBY.stage = 'game'; clearInterval(LOBBY.loadTimer);
   const r = LOBBY.room, cfg = r.cfg;
   const players = r.seats.map(s => ({ name: s.name, team: s.team, spawn: s.spawn, color: TEAM_COL[s.team] }));
@@ -10213,14 +10227,17 @@ function alertLobby(m) { const n = $('mpNote'); if (n) { n.textContent = m; n.st
 ------------------------------------------------------------------ */
 function firebaseTransport(db) {
   // db = firebase.database(). One node per room: rooms/<CODE>/{room, cmds, presence}
-  let base, roomRef, cmdRef, presRef, myPresRef, lastCmd = 0, presCount = 0;
+  let base, roomRef, cmdRef, presRef, myPresRef, presCount = 0, startAt = 0; const seen = new Set();
   return {
     _init(code) {
       base = db.ref('rooms/' + code); roomRef = base.child('room'); cmdRef = base.child('cmds'); presRef = base.child('presence');
+      startAt = Date.now();
       // presence: mark myself online, auto-removed by the server the instant I disconnect
       myPresRef = presRef.child(LOBBY.myId); myPresRef.set(Date.now()); myPresRef.onDisconnect().remove();
       roomRef.on('value', s => { const v = s.val(); if (v) NET._emitRoom(v); });
-      cmdRef.on('child_added', s => { const c = s.val(); if (c && (c._n || 0) > lastCmd) { lastCmd = c._n; NET._emitCmd(c); } });
+      // dedupe by the command's own DB key (never by timestamp — two cmds in the same ms could otherwise drop one,
+      // e.g. the final loaded:100), and skip commands from before we connected so historical replay can't re-fire.
+      cmdRef.on('child_added', s => { const c = s.val(); if (!c || seen.has(s.key)) return; seen.add(s.key); if ((c._n || 0) < startAt - 3000) return; NET._emitCmd(c); });
       // when the presence set changes, keep the seat list in sync and CLEAR the whole room once the last player leaves.
       // ONLY the host ever rewrites the seat list here — a fresh joiner can momentarily see just its own presence
       // (the host's presence hasn't propagated into its local cache yet), and must never nuke the room from that.
