@@ -10012,14 +10012,16 @@ const LOCAL_TRANSPORT = {
 
 /* ---------------- lobby lifecycle ---------------- */
 function lobbyHost(local) {
+  if (!local && !NET.transport) attachFirebaseIfPresent();     // make sure the realtime channel is attached before hosting
   LOBBY.code = randCode(); LOBBY.myId = uid(); LOBBY.hostId = LOBBY.myId; LOBBY.local = !!local;
   LOBBY.room = { code: LOBBY.code, hostId: LOBBY.myId, cfg: defaultCfg(), seats: [seat(LOBBY.myId, playerName())], started: false };
   if (local) { for (let i = 1; i < 2; i++) LOBBY.room.seats.push(seat(uid(), 'Player ' + (i + 1), i)); }   // one extra local seat to demo teams
-  NET.host(LOBBY.code); bindRoom(); openLobby();
+  bindRoom(); NET.host(LOBBY.code); NET.publishRoom(LOBBY.room); openLobby();   // write the room to the DB right away so joiners see it
 }
 function lobbyJoin(code) {
+  if (!NET.transport) attachFirebaseIfPresent();
   LOBBY.code = code.toUpperCase(); LOBBY.myId = uid(); LOBBY.local = false;
-  NET.join(LOBBY.code); bindRoom(); openLobby();
+  bindRoom(); NET.join(LOBBY.code); openLobby();
   // in a real transport the host adds our seat on receiving a join; locally there is no host tab
 }
 function seat(id, name, spawn) { return { id, name, team: 'ABCDEF'[spawn || 0] === undefined ? 'A' : 'ABCD'[(spawn || 0) % 4], spawn: spawn || 0, ready: false, loaded: 0 }; }
