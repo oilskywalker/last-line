@@ -6,6 +6,7 @@
 <title>LAST LINE — Zombie Defense</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+:root{--ui:1}   /* global HUD scale — adjustable in Settings, smaller by default on phones (see media queries) */
 html,body{width:100%;height:100%;overflow:hidden;background:#05070a;color:#dcefe3;
   font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,"DejaVu Sans Mono",monospace;
   -webkit-font-smoothing:antialiased;user-select:none;cursor:default;
@@ -338,7 +339,7 @@ html.touch #hint{bottom:210px}
 /* mobile focus mode — a live selection clears the ambient HUD, leaving only the control panels (command card + tools + selection) */
 html.touch.u-selected #topbar,html.touch.u-selected #miniwrap,html.touch.u-selected #speed,html.touch.u-selected #setbtn,html.touch.u-selected #fsbtn,html.touch.u-selected #intel{display:none!important}
 /* mobile — while placing / relocating a structure, hide everything but the placement card so the whole map is clear */
-html.touch.placing #topbar,html.touch.placing #miniwrap,html.touch.placing #speed,html.touch.placing #setbtn,html.touch.placing #fsbtn,html.touch.placing #intel,html.touch.placing #sel,html.touch.placing #mtools,html.touch.placing #bpop,html.touch.placing #hint{display:none!important}
+html.touch.placing #topbar,html.touch.placing #miniwrap,html.touch.placing #speed,html.touch.placing #setbtn,html.touch.placing #fsbtn,html.touch.placing #intel,html.touch.placing #sel,html.touch.placing #mtools,html.touch.placing #bpop,html.touch.placing #hint,html.touch.placing #cmd{display:none!important}
 /* keep every floating panel fully on-screen on phones: cap size and let tall content scroll instead of spilling off-screen */
 html.touch #cmd{max-width:calc(100vw - 16px);max-height:56vh;overflow-y:auto}
 html.touch #sel{max-width:calc(100vw - 16px);max-height:42vh;overflow-y:auto}
@@ -346,14 +347,12 @@ html.touch #bpop{max-width:calc(100vw - 12px);max-height:calc(100vh - 12px)}
 html.touch #miniwrap{max-width:calc(100vw - 16px)}
 @media (pointer:coarse){
   #devtoggle,#fps{display:none}
+  :root{--ui:.85}   /* phones/tablets: shrink the whole HUD for more play space (Settings can override) */
 }
 @media (pointer:coarse) and (max-width:900px){
-  #top,#topbar{transform:translateX(-50%) scale(.8);transform-origin:top center}
-  #cmd{width:min(52vw,340px);padding:7px;gap:4px}
-  #cmd .btn{height:56px}
-  #miniwrap{transform:scale(.66);transform-origin:left bottom}
+  :root{--ui:.72}
   #mini{width:300px;height:100px}
-  #sel{transform:scale(.82);transform-origin:left bottom;left:8px;bottom:120px}
+  #sel{left:8px;bottom:120px}
   #boxbtn{bottom:120px}
   #bpop{width:min(72vw,300px)}
   #bpopcmd .btn{height:58px}
@@ -364,10 +363,7 @@ html.touch #miniwrap{max-width:calc(100vw - 16px)}
   .lobcfg{grid-template-columns:1fr}
 }
 @media (pointer:coarse) and (max-width:560px){
-  #top,#topbar{transform:translateX(-50%) scale(.62)}
-  #cmd{width:min(56vw,260px)}
-  #cmd .btn{height:50px}
-  #miniwrap{transform:scale(.5)}
+  :root{--ui:.58}
   .mtitle{font-size:34px}.msub{font-size:11px}
   #menu{padding:0 14px 0 20px;justify-content:flex-start;padding-top:12px;overflow-y:auto}
   .lobmid #lobMap{width:min(320px,80vw)}
@@ -445,6 +441,23 @@ body:fullscreen #fsbtn,body:-webkit-full-screen #fsbtn{color:#ffd27a}
 #setbox .mini{border:1px solid #2b4339;background:#12201a;border-radius:6px;padding:6px 8px;cursor:pointer;color:#cdeadd;font-size:12px}
 #setbox .setmsg{color:#8dffbe;font-size:12px;min-height:16px;margin-top:4px}
 #setbox .closex{float:right;border:1px solid #2b4339;background:#12201a;color:#cdeadd;border-radius:6px;width:30px;height:30px;cursor:pointer;font-size:15px}
+/* ---------- global HUD scaling (var --ui): each panel scales from its own screen corner so nothing drifts ---------- */
+#topbar{transform:translateX(-50%) scale(var(--ui));transform-origin:top center}
+#speed{transform:scale(var(--ui));transform-origin:top right}
+#setbtn{transform:scale(var(--ui));transform-origin:top right}
+#fsbtn{transform:scale(var(--ui));transform-origin:top left}
+#sel{transform:scale(var(--ui));transform-origin:left bottom}
+#mtools{transform:translateY(-50%) scale(var(--ui));transform-origin:right center}
+#cmd{transform:scale(var(--ui));transform-origin:right bottom}
+#cmd.collapsed{transform:translateY(calc(100% - 25px)) scale(var(--ui))}
+#miniwrap{transform:scale(var(--ui));transform-origin:left bottom}
+#miniwrap.collapsed{transform:translateY(calc(100% - 25px)) scale(var(--ui))}
+/* floating cancel shown only while placing on a phone (all other HUD is hidden then) */
+#placebar{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:30;display:none;gap:8px;pointer-events:auto}
+html.touch.placing #placebar{display:flex}
+#placebar button{pointer-events:auto;border:1.5px solid #2f4a3e;background:rgba(12,22,18,.94);color:#cde;font-family:inherit;
+  font-size:13px;font-weight:700;padding:10px 16px;border-radius:11px;box-shadow:0 3px 12px rgba(0,0,0,.5);cursor:pointer}
+#placebar button.go{border-color:#8dffbe;color:#eafff4;background:linear-gradient(180deg,#1f3830,#12201a)}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
@@ -523,6 +536,7 @@ window.__FB_CONFIG = /*FBCONFIG*/{
   <div id="miniwrap" class="pan"><div class="phead" id="miniHead">MAP<span class="cv">⌄</span></div><canvas id="mini" width="680" height="208"></canvas></div>
   <div id="sel" class="pan"></div>
   <div id="cmd" class="pan"></div>
+  <div id="placebar"><button id="pbConfirm" class="go" hidden>✓ Confirm</button><button id="pbCancel">✕ Cancel</button></div>
   <div id="tip"></div>
 </div>
 <div id="settings">
@@ -548,7 +562,8 @@ window.__FB_CONFIG = /*FBCONFIG*/{
       <h3>Display</h3>
       <label class="sfxrow" style="cursor:pointer"><input type="checkbox" id="tgGrid" style="width:16px;height:16px;accent-color:#8dffbe"><span class="nm" style="margin-left:8px">Tile grid overlay</span></label>
       <label class="sfxrow" style="cursor:pointer"><input type="checkbox" id="tgMap" checked style="width:16px;height:16px;accent-color:#8dffbe"><span class="nm" style="margin-left:8px">Minimap</span></label>
-      <div class="sc" style="margin-top:6px">HD rendering auto-adjusts under heavy load; press <b>F1</b> to lock it.</div>
+      <div class="slid" style="margin-top:10px"><label>UI size</label><input type="range" id="uiScale" min="45" max="120" step="1"><span class="v" id="uiScaleV">100%</span></div>
+      <div class="sc" style="margin-top:6px">Shrink the on-screen controls for more play space (great on phones). HD rendering auto-adjusts under heavy load; press <b>F1</b> to lock it.</div>
     </div>
 
     <div class="grp">
@@ -7927,6 +7942,30 @@ function setSpeedCollapsed(on) { const sp = $('speed'); if (!sp) return; sp.clas
 /* show/hide the whole speed control for the current match (hidden entirely in multiplayer) */
 function applySpeedMode() { const sp = $('speed'); if (!sp) return; sp.classList.toggle('mp', !!(typeof G !== 'undefined' && G.mp)); if (typeof G !== 'undefined' && G.mp) setSpeed(1); }
 window.applySpeedMode = applySpeedMode;
+
+/* ---------------- UI scale (adjustable in Settings) ---------------- */
+function applyUIScale(v) {
+  v = clamp(v, .45, 1.3);
+  document.documentElement.style.setProperty('--ui', v.toFixed(2));
+  try { localStorage.setItem('ll_uiscale', v.toFixed(2)); } catch (e) {}
+  const s = $('uiScale'), lab = $('uiScaleV'); if (s) s.value = Math.round(v * 100); if (lab) lab.textContent = Math.round(v * 100) + '%';
+}
+window.applyUIScale = applyUIScale;
+(function () {
+  let saved = null; try { const raw = localStorage.getItem('ll_uiscale'); if (raw) saved = parseFloat(raw); } catch (e) {}
+  if (saved && saved > 0) applyUIScale(saved);   // a saved choice overrides the responsive CSS default
+  else { const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui')) || 1; const s = $('uiScale'), lab = $('uiScaleV'); if (s) s.value = Math.round(cur * 100); if (lab) lab.textContent = Math.round(cur * 100) + '%'; }
+  const s = $('uiScale'); if (s) s.addEventListener('input', () => applyUIScale((+s.value || 100) / 100));
+})();
+
+/* ---------------- floating placement Cancel/Confirm (mobile: the rest of the HUD is hidden while placing) ---------------- */
+(function () {
+  const cancel = $('pbCancel'), confirm = $('pbConfirm');
+  const doCancel = () => { if (UI.moving && typeof cancelRelocate === 'function') cancelRelocate(); UI.place = null; if (UI.queue) UI.queue.length = 0; UI.spawnPlace = 0; refreshCard(true); AU.ui && AU.ui('no'); };
+  const doConfirm = () => { if (UI.queue && UI.queue.length && typeof commitQueue === 'function') commitQueue(); else { UI.place = null; refreshCard(true); } };
+  const wire = (el, fn) => { if (!el) return; el.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); fn(); }, { passive: false }); el.addEventListener('click', e => { e.stopPropagation(); fn(); }); };
+  wire(cancel, doCancel); wire(confirm, doConfirm);
+})();
 const SPEEDS = [0, .5, 1, 2, 3, 4];
 function nudgeSpeed(dir) {
   let i = SPEEDS.indexOf(G.speed); if (i < 0) i = 2;
@@ -8535,6 +8574,7 @@ function updateMobileChrome() {
   const selecting = !placing && G.sel && G.sel.length > 0;
   root.classList.toggle('placing', placing);
   root.classList.toggle('u-selected', !!selecting);
+  const cf = $('pbConfirm'); if (cf) cf.hidden = !(UI.queue && UI.queue.length);   // Confirm appears only when blueprints are queued
 }
 function updateHUD(dt) {
   updateBuildPopup();
