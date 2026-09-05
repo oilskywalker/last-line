@@ -2793,8 +2793,8 @@ function chunkProps(cx, cy) {
   let p = propCache.get(k);
   if (p) return p;
   p = [];
-  // 23 candidate slots per chunk (trimmed again for −30% trees) → a lighter-forested world
-  for (let i = 0; i < 23; i++) {
+  // 18 candidate slots per chunk + lower tree odds (another −30% trees) → a lighter-forested world
+  for (let i = 0; i < 18; i++) {
     const hx = hash2(cx * 91 + i * 7, cy * 53 + i * 13);
     const hy = hash2(cx * 37 + i * 3, cy * 71 + i * 19);
     const x = cx * CH + hx * CH, y = cy * CH + hy * CH;
@@ -2804,9 +2804,9 @@ function chunkProps(cx, cy) {
     const r = hash2(cx * 17 + i, cy * 29 + i * 5);
     let s = null;
     // slots beyond the original 16 only ever become trees (they exist to thicken the woods)
-    if (i >= 16) { if ((t === T_FOREST && r < .9) || (t === T_GRASS && r < .34) || (t === T_SWAMP && r < .3)) s = 'tree'; else continue; }
-    else if (t === T_FOREST) s = r < .78 ? 'tree' : 'bush';
-    else if (t === T_GRASS) { if (r < .42) s = r < .26 ? 'tree' : 'bush'; }
+    if (i >= 16) { if ((t === T_FOREST && r < .78) || (t === T_GRASS && r < .24) || (t === T_SWAMP && r < .22)) s = 'tree'; else continue; }
+    else if (t === T_FOREST) { if (r < .82) s = r < .55 ? 'tree' : 'bush'; }
+    else if (t === T_GRASS) { if (r < .36) s = r < .18 ? 'tree' : 'bush'; }
     else if (t === T_SWAMP) { if (r < .5) s = r < .3 ? 'bush' : 'tree'; }
     else if (t === T_SAND) { if (r < .16) s = 'rock'; }
     else if (t === T_DIRT) { if (r < .3) s = r < .14 ? 'rock' : 'bush'; }
@@ -3630,7 +3630,7 @@ const G = {
   killed: 0, lost: 0, hq: null, lamps: [], towers: [],
   speed: 1, wind: { x: 14, y: -4, t: 0 }, ambT: 0,
   dev: false, cheat: { pop: false, recruit: false, build: false, research: false, god: false },
-  bGrid: new Map(), frame: 0, baseBox: { x0: 0, y0: 0, x1: 0, y1: 0 }, air: [], deadProps: new Map(), tier: { inf: 1, veh: 1, air: 1 }, utier: {},
+  bGrid: new Map(), frame: 0, baseBox: { x0: 0, y0: 0, x1: 0, y1: 0 }, air: [], deadProps: new Map(), cleared: new Set(), tier: { inf: 1, veh: 1, air: 1 }, utier: {},
   grass: new Map(), grassPruneT: 0,
   mode: 'defense', villages: [], bonus: 0, camps: []
 };
@@ -4181,6 +4181,25 @@ function clearTreesAround(b, margin) {
     const ps = chunkProps(cx, cy);
     for (let i = 0; i < ps.length; i++) { const q = ps[i]; if (q.x < x0 || q.x > x1 || q.y < y0 || q.y > y1 || G.deadProps.has(q.id)) continue; G.deadProps.set(q.id, Infinity); if (q.s === 'tree' && n++ < 12) { fxDebris(q.x, q.y, 6, '#6a4a26'); for (let l = 0; l < 4; l++) part('leaf', q.x + rnd(-10, 10), q.y + rnd(-10, 10), rnd(-30, 30), rnd(-30, 30), rnd(.6, 1.2), rnd(1.5, 2.6), l & 1 ? '#4a7030' : '#6a8c3c', { z: rnd(12, 30), vz: rnd(20, 60), g: 200, drag: .95, wind: 1 }); } }
   }
+}
+/* engineer terrain brush: permanently clear every tree/bush in a circle of radius `rTiles`; also marks the
+   tiles so nothing ever grows back there. Returns how many props were newly cleared. */
+function clearTerrainAt(wx, wy, rTiles) {
+  const r = rTiles * TS, r2 = r * r; let n = 0;
+  if (!G.cleared) G.cleared = new Set();
+  for (let ty = Math.floor((wy - r) / TS); ty <= Math.floor((wy + r) / TS); ty++)
+    for (let tx = Math.floor((wx - r) / TS); tx <= Math.floor((wx + r) / TS); tx++) {
+      if (!inMap(tx, ty)) continue;
+      const cxp = tx * TS + TS * .5, cyp = ty * TS + TS * .5;
+      if (dist2(cxp, cyp, wx, wy) > r2) continue;
+      G.cleared.add(ty * MW + tx);
+    }
+  for (let cy = Math.floor((wy - r) / CH); cy <= Math.floor((wy + r) / CH); cy++)
+    for (let cx = Math.floor((wx - r) / CH); cx <= Math.floor((wx + r) / CH); cx++) {
+      const ps = chunkProps(cx, cy);
+      for (let i = 0; i < ps.length; i++) { const q = ps[i]; if (G.deadProps.has(q.id)) continue; if (dist2(q.x, q.y, wx, wy) > r2) continue; G.deadProps.set(q.id, Infinity); if (q.s === 'tree' && n < 10) { n++; fxDebris(q.x, q.y, 5, '#6a4a26'); for (let l = 0; l < 3; l++) part('leaf', q.x + rnd(-8, 8), q.y + rnd(-8, 8), rnd(-26, 26), rnd(-26, 26), rnd(.5, 1.1), rnd(1.4, 2.4), l & 1 ? '#4a7030' : '#6a8c3c', { z: rnd(10, 26), vz: rnd(18, 55), g: 200, drag: .95, wind: 1 }); } }
+    }
+  return n;
 }
 function addBuilding(t, tx, ty, done) {
   const d = BDEF[t];
@@ -6318,15 +6337,21 @@ function fire(src, tgt, wep, muz) {
   const spread = wep.spread * (G.night && !G.up.nvg && !(src.def && src.def.nightSight) && litAt(src.x, src.y) < .4 && !towerAt(src.x, src.y) ? 1.6 : 1) * paceSpread(src);
   const dmg = wep.dmg * dmgMul(src) * bd;
   const wc = weaponClass(src, wep);
+  const z0 = 9 + srcZ;
+  // where the round is aimed vertically: a ground target sits near the deck, an airborne one at its own altitude.
+  // the bullet then descends along the true line from the muzzle's height to the target's height as it flies.
+  const tz = (tgt && tgt.def && tgt.def.fly) ? (9 + airZ(tgt)) : 9;
+  const hdist = tgt ? Math.max(24, Math.hypot(tgt.x - m.x, tgt.y - m.y)) : 1e9;
+  const zSlope = (tz - z0) / hdist;                                    // z (px) change per px travelled toward the target
   for (let i = 0; i < shots; i++) {
     const a = base + rnd(-spread, spread);
     const spd = wep.spd * (shots > 1 ? rnd(.85, 1.1) : 1);
     const life = (wep.rng * rngMul(src) * (shots > 1 ? 1.05 : 1.35)) / spd;
     G.bullets.push({
-      x: m.x, y: m.y, px: m.x, py: m.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+      x: m.x, y: m.y, px: m.x, py: m.y, ox: m.x, oy: m.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
       dmg, splash: wep.splash || 0, kind: wep.kind, life, life0: life, wc,
       ang: a, smoke: wep.smokeTrail, team: 1, tm: plyOf(src).team, src, tier, pierce: wep.pierce || 0,
-      z: 9 + srcZ, z0: 9 + srcZ, zg: 9, fly: (src.def && src.def.fly) ? 1 : 0
+      z: z0, z0, zg: tz, zSlope, drop: Math.abs(z0 - tz) > 3, fly: (src.def && src.def.fly) ? 1 : 0
     });
   }
   fxMuzzle(m.x, m.y, base, (wep.sfx === 'cannon' ? 2.6 : wep.sfx === 'shotgun' ? 1.9 : wep.sfx === 'm2' ? 1.7 : wep.sfx === 'auto' ? 1.5 : 1) * (1 + .28 * (tier - 1)), srcZ, tier);
@@ -6588,18 +6613,23 @@ function updateBuildings(dt) {
     /* --- emplacement fire --- */
     const w = b.def.wep;
     if (w && w.dual) {
-      // sniper tower: two marksmen, each on its own cooldown, engaging two SEPARATE targets at once
+      // sniper tower: two marksmen on the platform, each on its own cooldown, engaging two SEPARATE targets at once.
+      // each round leaves that soldier's own elevated position (matching where he's drawn), so the tracer streaks down from him.
       b.cd -= dt; b.cd2 = (b.cd2 === undefined ? rnd(0, .4) : b.cd2) - dt;
       if (b.reloadT > 0) { b.reloadT -= dt; if (b.reloadT <= 0) b.ammo = w.mag || 0; }
       const lv = bLvl(b);
       let rng = w.rng * rngMul(b) * (1 + .12 * (b.tier - 1));
+      const bs = b.def.mw ? b.def.w / b.def.mw : 1, off = .42 * bs * TS, pz = (b.def.hgt || 96) * bs;   // soldier corner offset + platform height (px), matches the renderer
+      const gunA = { x: b.x - off, y: b.y - off, z: pz }, gunB = { x: b.x + off, y: b.y + off, z: pz };
       const t1 = findEnemy(b.x, b.y, rng, w.minRng);
       const t2 = t1 ? findEnemyExcept(b.x, b.y, rng, w.minRng, [t1]) : null;
-      b.aimA = t1 ? angTo(b.x, b.y, t1.x, t1.y) : (b.aimA || 0);
-      b.aimB = t2 ? angTo(b.x, b.y, t2.x, t2.y) : b.aimA;
-      const shoot = (tt, aim) => fire({ x: b.x, y: b.y, ang: aim, aimT: aim, r: Math.max(b.w, b.h) * TS * .4, def: { wep: w, nightSight: true }, ammo: b.ammo, vx: 0, vy: 0, bDmg: lv, tier: b.tier }, tt, w);
-      if (t1 && b.cd <= 0 && b.reloadT <= 0) { if (w.mag && b.ammo <= 0) { b.reloadT = w.reload; AU.reload(b.x, b.y, w.sfx); } else { shoot(t1, b.aimA); if (w.mag) b.ammo--; b.cd = w.cd; } }
-      if (t2 && b.cd2 <= 0 && b.reloadT <= 0) { if (!(w.mag && b.ammo <= 0)) { shoot(t2, b.aimB); if (w.mag) b.ammo--; b.cd2 = w.cd; } }
+      b.aimA = t1 ? angTo(gunA.x, gunA.y, t1.x, t1.y) : (b.aimA || 0);
+      b.aimB = t2 ? angTo(gunB.x, gunB.y, t2.x, t2.y) : b.aimA;
+      b.gunA = gunA; b.gunB = gunB;                                        // hand the exact soldier positions to the renderer
+      const shoot = (gun, tt, aim) => fire({ x: gun.x, y: gun.y, ang: aim, aimT: aim, r: 6, def: { wep: w, nightSight: true }, ammo: b.ammo, vx: 0, vy: 0, bDmg: lv, tier: b.tier, mz: gun.z }, tt, w, { x: gun.x + Math.cos(aim) * 10, y: gun.y + Math.sin(aim) * 10, a: aim, z: gun.z });
+      if (t1 && b.cd <= 0 && b.reloadT <= 0) { if (w.mag && b.ammo <= 0) { b.reloadT = w.reload; AU.reload(b.x, b.y, w.sfx); } else { shoot(gunA, t1, b.aimA); if (w.mag) b.ammo--; b.cd = w.cd; b.fxA = .1; } }
+      if (t2 && b.cd2 <= 0 && b.reloadT <= 0) { if (!(w.mag && b.ammo <= 0)) { shoot(gunB, t2, b.aimB); if (w.mag) b.ammo--; b.cd2 = w.cd; b.fxB = .1; } }
+      if (b.fxA > 0) b.fxA -= dt; if (b.fxB > 0) b.fxB -= dt;
       continue;
     }
     if (w) {
@@ -6657,7 +6687,9 @@ function updateBullets(dt) {
 
     b.px = b.x; b.py = b.y;
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
-    if (b.fly) b.z = b.zg + (b.z0 - b.zg) * clamp(b.life / b.life0, 0, 1);
+    // ride the true firing line: descend (or climb) from the muzzle's height toward the target's height along the shot
+    if (b.drop) { const dd = Math.hypot(b.x - b.ox, b.y - b.oy); b.z = b.z0 + b.zSlope * dd; if (b.zSlope < 0 && b.z < b.zg) b.z = b.zg; else if (b.zSlope > 0 && b.z > b.zg) b.z = b.zg; }
+    else if (b.fly) b.z = b.zg + (b.z0 - b.zg) * clamp(b.life / b.life0, 0, 1);
     if (b.smoke && Math.random() < dt * 60) fxSmoke(b.x, b.y, rnd(-14, 14), rnd(-14, 14), rnd(2.5, 5), rnd(.5, 1.1), 'rgba(180,176,168,1)');
     if (b.kind === 'rocket') G.lights.push({ x: b.x, y: b.y, r: 90, c: [255, 170, 90], i: .7 });
 
@@ -9191,6 +9223,10 @@ function cardFor() {
     }
     btns.title = units.length > 1 ? units.length + ' units selected' : units[0].def.name;
     if (hasEng) btns.push({ g: '🏗️', n: 'Build', k: 'B', tip: 'Open the construction menu.', fn: () => { UI.tab = 'build'; refreshCard(true); } });
+    if (hasEng) {
+      btns.push({ g: '🪓', n: UI.clearMode ? 'Clearing…' : 'Clear Terrain', k: 'X', act: !!UI.clearMode, tip: 'Paint the ground to permanently clear trees and keep the area from growing back. Drag to paint; use Brush to resize; right-click to stop.', fn: () => { UI.clearMode = !UI.clearMode; if (UI.clearMode) { UI.place = null; UI.attackMove = false; } AU.ui('ok'); refreshCard(true); } });
+      if (UI.clearMode) btns.push({ g: '⭕', n: 'Brush ' + (UI.clearSize || 2), k: 'Z', tip: 'Cycle the clearing brush radius (1–6 tiles).', fn: () => { UI.clearSize = ((UI.clearSize || 2) % 6) + 1; AU.ui('ok'); refreshCard(true); } });
+    }
     btns.push({ g: '⚔️', n: 'Attack Move', k: 'A', tip: 'Advance and engage anything on the way.', act: UI.attackMove, fn: () => { UI.attackMove = !UI.attackMove; refreshCard(true); } });
     btns.push({ g: '✋', n: 'Stop', k: 'S', tip: 'Cancel current orders.', fn: () => { for (const u of units) u.order = null; AU.ui('ok'); } });
     {
@@ -9497,11 +9533,13 @@ cv.addEventListener('mousedown', e => {
       return;
     }
     if (UI.moving) { finishRelocate(s2wx(x, y), s2wy(y, x)); IN.down = true; return; }
+    if (UI.clearMode) { clearTerrainAt(s2wx(x, y), s2wy(y, x), UI.clearSize || 2); IN.down = true; return; }
     if (UI.place) { tryPlace(s2wx(x, y), s2wy(y, x)); IN.down = true; return; }
     IN.down = true; IN.dragging = true; IN.dx0 = x; IN.dy0 = y; IN.dragDist = 0;
   } else if (e.button === 2) {
     if (UI.spawnPlace) { UI.spawnPlace = 0; $('dvIvPlace').classList.remove('arm'); alertMsg('Spawn placement cancelled', ''); return; }
     if (UI.moving) { cancelRelocate(); return; }
+    if (UI.clearMode) { UI.clearMode = false; refreshCard(true); AU.ui('no'); return; }
     if (UI.queue.length) { cancelQueue(); return; }
     if (UI.place) { UI.place = null; UI.tab = null; refreshCard(true); return; }
     if (UI.attackMove) { UI.attackMove = false; refreshCard(true); return; }
@@ -9517,6 +9555,7 @@ window.addEventListener('mousemove', e => {
   IN.mx = x; IN.my = y;
   if (x > 2 && y > 2 && x < cv.width - 2 && y < cv.height - 2) IN.hasMouse = true;
   if (IN.dragging) IN.dragDist = Math.hypot(x - IN.dx0, y - IN.dy0);
+  if (IN.down && UI.clearMode) clearTerrainAt(s2wx(x, y), s2wy(y, x), UI.clearSize || 2);
   if (IN.down && UI.place && BDEF[UI.place] && (BDEF[UI.place].wall || BDEF[UI.place].trap)) tryPlace(s2wx(x, y), s2wy(y, x));
   if (IN.miniDrag) miniJump(e);
 });
@@ -9898,7 +9937,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
   P.splat = TEX.splat.map(t => pool(DECALG, decalMat(t), 500, false));
   // grass blades: a thin box with its base at the origin, so it can tilt from the ground when trampled
   const GRASSG = new THREE.BoxGeometry(.035, .32, .012); GRASSG.translate(0, .16, 0);
-  P.grass = pool(GRASSG, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide }), 4200, false);
+  P.grass = pool(GRASSG, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide }), 13000, false);
   const GRASSC = [lin('#5f8a3a'), lin('#4c7430'), lin('#6b9440')];
   const PER_FRAME = [P.box, P.cam, P.cloth, P.head, P.helm, P.cyl, P.metal, P.gore, P.ring, P.tracer, P.sel, P.shadow, P.scorch, P.canopy, P.bush, P.beam, P.grass].concat(P.splat);
   const PROPS = [P.trunk, P.rock, P.barrel, P.wreck], foliage = [];
@@ -10610,14 +10649,15 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       }
       /* ---- grass blades: they sway on the wind, and lie flat (then slowly stand back up) where troops and vehicles have run through ---- */
       const gtx0 = Math.max(0, (vx0 / TS) | 0), gtx1 = Math.min(MW - 1, (vx1 / TS) | 0), gty0 = Math.max(0, (vy0 / TS) | 0), gty1 = Math.min(MH - 1, (vy1 / TS) | 0);
-      const dense = (gtx1 - gtx0 + 1) * (gty1 - gty0 + 1) < 1400;   // zoomed in: 3 blades a tile; zoomed out: 1 (stay under the pool cap)
-      const per = dense ? 3 : 1;
+      const dense = (gtx1 - gtx0 + 1) * (gty1 - gty0 + 1) < 2600;   // zoomed in: 6 blades a tile for a full carpet; zoomed out: 2 (stay under the pool cap)
+      const per = dense ? 6 : 2;
       outer: for (let ty = gty0; ty <= gty1; ty++) for (let tx = gtx0; tx <= gtx1; tx++) {
         const ti = tileIdx(tx, ty), t = MAP.t[ti]; if (t !== T_GRASS && t !== T_FOREST && t !== T_SWAMP) continue; if (G.gridB[ti]) continue;
         for (let k = 0; k < per; k++) {
-          if (P.grass.count >= 4190) break outer;
+          if (P.grass.count >= 12980) break outer;
           const h1 = hash2(tx * 3 + k * 5, ty * 7 + k), h2 = hash2(tx * 11 + k, ty * 13 + k * 3);
-          const wx = (tx + h1) * TS, wy = (ty + h2) * TS, flat = grassFlat(wx, wy);
+          const cellx = (k % 3) / 3, celly = ((k / 3) | 0) / 2;   // spread blades across the tile so the ground is covered
+          const wx = (tx + cellx + h1 * .33) * TS, wy = (ty + celly + h2 * .5) * TS, flat = grassFlat(wx, wy);
           const bh = (.16 + h1 * .18) * (1 - flat * .55);
           let rx, rz;
           if (flat > .04) { const dir = hash2(tx * 17 + k, ty * 19) * TAU; rx = Math.cos(dir) * 1.3 * flat; rz = Math.sin(dir) * 1.3 * flat; }   // pressed flat by whoever ran through
@@ -10646,11 +10686,18 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       }
       if (b.t === 'tower' && b.done) {                                           // watchtower: two marksmen on the platform, each covering a separate target
         const bs = g.userData.bs || 1, M = MODEL.marksman || MODEL.rifleman, S = M ? M.S : {};
-        const py = g.position.y + (b.def.hgt || 96) * K * bs;                    // platform deck height
-        const posA = [-.42 * bs, -.42 * bs], posB = [.42 * bs, .42 * bs];
+        const py = g.position.y + (b.def.hgt || 96) * K * bs;                    // platform deck height (matches the muzzle height the sim fires from)
+        // use the exact soldier spots the sim fires from; each faces its own target and jolts back a touch as it fires
+        const ax = b.gunA ? b.gunA.x * K : g.position.x - .42 * bs, az = b.gunA ? b.gunA.y * K : g.position.z - .42 * bs;
+        const bx = b.gunB ? b.gunB.x * K : g.position.x + .42 * bs, bz = b.gunB ? b.gunB.y * K : g.position.z + .42 * bs;
         const aimA = b.aimA !== undefined ? b.aimA : (b.ang || 0), aimB = b.aimB !== undefined ? b.aimB : (b.ang || 0);
-        drawFigure(g.position.x + posA[0], py, g.position.z + posA[1], aimA, 0, S, { kind: 'mil', gun: 'long', scale: .9, limbs: 15, id: b.id + 1, ut: 'marksman' });
-        drawFigure(g.position.x + posB[0], py, g.position.z + posB[1], aimB, 0, S, { kind: 'mil', gun: 'long', scale: .9, limbs: 15, id: b.id + 2, ut: 'marksman' });
+        const rcA = (b.fxA > 0 ? b.fxA * 10 : 0), rcB = (b.fxB > 0 ? b.fxB * 10 : 0);   // 0..1 recoil kick just after firing
+        const swayA = Math.sin(G.t * 1.6 + b.id) * .015, swayB = Math.sin(G.t * 1.7 + b.id * 2) * .015;   // subtle idle scan
+        drawFigure(ax - Math.cos(aimA) * rcA * .06, py, az - Math.sin(aimA) * rcA * .06, aimA + swayA, 0, S, { kind: 'mil', gun: 'long', scale: .9, limbs: 15, id: b.id + 1, ut: 'marksman' });
+        drawFigure(bx - Math.cos(aimB) * rcB * .06, py, bz - Math.sin(aimB) * rcB * .06, aimB + swayB, 0, S, { kind: 'mil', gun: 'long', scale: .9, limbs: 15, id: b.id + 2, ut: 'marksman' });
+        // muzzle flash at each rifle when it fires
+        if (b.fxA > 0) bb(partsAdd, ax + Math.cos(aimA) * .55, py + .42, az + Math.sin(aimA) * .55, .3, 1, .92, .6, b.fxA * 9);
+        if (b.fxB > 0) bb(partsAdd, bx + Math.cos(aimB) * .55, py + .42, bz + Math.sin(aimB) * .55, .3, 1, .92, .6, b.fxB * 9);
       }
       if (g.userData.range && b.done) {                                          // research lab: five technicians test-fire on the range north of the building, each on their own rhythm
         const R = g.userData.range, sy = g.position.y, bs = g.userData.bs || 1, M = MODEL.marksman || MODEL.rifleman; const S = M ? M.S : {};
@@ -10779,8 +10826,10 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       const x = b.x * K, z = b.y * K, y = groundY(b.x, b.y) + (b.z || 8) * K;
       if (b.kind === 'mortar') { bb(partsAdd, x, y, z, .18, 1, .9, .7, .9); continue; }
       const a = Math.atan2(b.vy, b.vx), len = b.pierce ? 1.6 : b.kind === 'shell' ? .7 : b.kind === 'rocket' ? .4 : b.kind === 'arrow' ? .5 : .8;
-      if (b.kind === 'arrow') put(P.cyl, x, y, z, 0, -a, HPI, .012, .55, .012, WOOD);
-      else put(P.tracer, x, y, z, 0, -a, 0, len, .035, .035);
+      // tilt the tracer to the shot's true vertical angle so a round fired from a tower or aircraft streaks down toward its target
+      const hs = Math.hypot(b.vx, b.vy) || 1, pit = (b.drop || b.fly) ? Math.atan2((b.zSlope || 0) * hs, hs) : 0;
+      if (b.kind === 'arrow') put(P.cyl, x, y, z, 0, -a, HPI + pit, .012, .55, .012, WOOD);
+      else put(P.tracer, x, y, z, 0, -a, pit, len, .035, .035);
       if (b.kind === 'rocket') bb(partsAdd, x, y, z, .35, 1, .75, .4, .9);
       if (b.kind === 'acid') bb(partsAdd, x, y, z, .28, .6, .95, .25, .9);
     }
@@ -10808,6 +10857,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     /* ---- ground decals: scorch marks on crater floors, blood splatter ---- */
     for (let i = decalList.length - 1; i >= 0; i--) { const dl = decalList[i]; if (dl.x < vx0 * K || dl.x > vx1 * K || dl.y < vy0 * K || dl.y > vy1 * K) continue; const gy = groundY(dl.x / K, dl.y / K) + .02; if (dl.k < 0) put(P.scorch, dl.x, gy, dl.y, -HPI, dl.rot, 0, dl.r * 2, dl.r * 2, 1, WHITE); else put(P.splat[dl.k], dl.x, gy, dl.y, -HPI, dl.rot, 0, dl.r * 2, dl.r * 2, 1, dl.c); }
     /* ---- placement ghosts ---- */
+    if (UI.clearMode && IN.hasMouse) { const wx = s2wx(IN.mx, IN.my), wy = s2wy(IN.my, IN.mx), rr = (UI.clearSize || 2) * TS * K; put(P.sel, wx * K, groundY(wx, wy) + .05, wy * K, -HPI, 0, 0, rr * 2, rr * 2, 1, col3('#ff8a5a')); }
     if (UI.place && BDEF[UI.place]) { const d = BDEF[UI.place], gx = Math.floor(s2wx(IN.mx, IN.my) / TS - (d.w - 1) / 2), gy2 = Math.floor(s2wy(IN.my, IN.mx) / TS - (d.h - 1) / 2); const ok = canPlace(UI.place, gx, gy2) && (UI.queue.length ? true : affordable(d.cost)); ghost3(gx, gy2, d, ok); for (const q of UI.queue) ghost3(q.tx, q.ty, BDEF[q.t], true); }
     else if (UI.moving) { const d = UI.moving.def, gx = Math.floor(s2wx(IN.mx, IN.my) / TS - (d.w - 1) / 2), gy2 = Math.floor(s2wy(IN.my, IN.mx) / TS - (d.h - 1) / 2); ghost3(gx, gy2, d, canPlace(UI.moving.t, gx, gy2, UI.moving)); }
     else ghostMesh.visible = false;
@@ -11651,6 +11701,7 @@ function attachFirebaseIfPresent() {
       const [x, y] = posT(e.touches[0]); IN.mx = x; IN.my = y; sx = x; sy = y; moved = false; startT = performance.now();
       if (UI.spawnPlace) { mode = 'spawn'; return; }
       if (UI.moving) { mode = 'reloc'; return; }
+      if (UI.clearMode) { mode = 'clear'; clearTerrainAt(s2wx(x, y), s2wy(y, x), UI.clearSize || 2); return; }
       if (UI.place) { mode = 'place'; tryPlace(s2wx(x, y), s2wy(y, x)); return; }
       if (IN.boxArm) { mode = 'box'; IN.dragging = true; IN.down = true; IN.dx0 = x; IN.dy0 = y; IN.dragDist = 0; return; }
       mode = 'pan';
@@ -11688,6 +11739,7 @@ function attachFirebaseIfPresent() {
     if (Math.hypot(x - sx, y - sy) > 12 * DPRk()) { moved = true; clearTimeout(lp); }
     if (mode === 'pan') { CAM.x -= dx / (CAM.zoom * PIX); CAM.y -= dy / (CAM.zoom * PIX); clampCam(); }
     else if (mode === 'box') { IN.dragDist = Math.hypot(x - IN.dx0, y - IN.dy0); }
+    else if (mode === 'clear' && UI.clearMode) clearTerrainAt(s2wx(x, y), s2wy(y, x), UI.clearSize || 2);
     else if (mode === 'place' && UI.place && BDEF[UI.place] && (BDEF[UI.place].wall || BDEF[UI.place].trap)) tryPlace(s2wx(x, y), s2wy(y, x));
   }, { passive: false });
 
