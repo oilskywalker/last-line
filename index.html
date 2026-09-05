@@ -2367,9 +2367,9 @@ const UDEF = {
 const ZDEF = {
   walker: { name: 'Walker', hp: 62, spd: 34, r: 10, dmg: 9, rate: 1.0, armor: 0, spr: 'walker', scrap: 4 },
   runner: { name: 'Runner', hp: 46, spd: 92, r: 9, dmg: 6, rate: .55, armor: 0, spr: 'runner', scrap: 5 },
-  brute: { name: 'Brute', hp: 460, spd: 42, r: 18, dmg: 40, rate: 1.5, armor: 5, spr: 'brute', scrap: 26, big: true },
-  bloater: { name: 'Bloater', hp: 175, spd: 34, r: 15, dmg: 12, rate: 1.2, armor: 1, spr: 'bloater', scrap: 14, burst: { dmg: 65, r: 86 } },
-  spitter: { name: 'Spitter', hp: 95, spd: 48, r: 10, dmg: 13, rate: 1.7, armor: 0, spr: 'spitter', scrap: 11, ranged: 165 }
+  brute: { name: 'Brute', hp: 460, spd: 42, r: 18, dmg: 40, rate: 1.5, armor: 5, spr: 'brute', scrap: 26, big: true, special: true },
+  bloater: { name: 'Bloater', hp: 175, spd: 34, r: 15, dmg: 12, rate: 1.2, armor: 1, spr: 'bloater', scrap: 14, burst: { dmg: 65, r: 86 }, special: true },
+  spitter: { name: 'Spitter', hp: 95, spd: 48, r: 10, dmg: 13, rate: 1.7, armor: 0, spr: 'spitter', scrap: 11, ranged: 165, special: true }
 };
 
 /* ---- INVADERS mode: a medieval army warped forward in time ----
@@ -3864,6 +3864,48 @@ function severLimb(e, ang, force) {
   return true;
 }
 
+/* sever a SPECIFIC kind of limb (arm/leg) rather than a random one, for location-based hits */
+function severZedPart(e, ang, part) {
+  if (!e.limbs) return false;
+  const bits = part === 'leg' ? [4, 8] : [1, 2];
+  const avail = bits.filter(b => e.limbs & b);
+  if (!avail.length) return false;
+  return severLimb(e, ang, pick(avail));
+}
+/* which weapon family a shot came from — decides how a zombie takes the hit */
+function weaponClass(src, wep) {
+  if (!wep) return 'rifle';
+  if (wep.sfx === 'shotgun' || (wep.pellets && wep.pellets > 1)) return 'shotgun';
+  if (src && src.def && src.def.veh && !src.def.fly && (wep.sfx === 'm2' || wep.sfx === 'auto' || wep.sfx === 'mg' || wep.sfx === 'minigun' || wep.sfx === 'chain')) return 'vmg';
+  return 'rifle';
+}
+/* Location-based small-arms damage on a zombie: headshots drop it, torso takes several rounds, and hits to the
+   arms/legs blow those limbs off (arms cut its attack, legs cut its speed). 'a' is already halved for specials. */
+function applyZedDamage(e, a, srcAng, opts) {
+  const M = MODEL[e.t], special = !!e.def.special, wc = opts.wc, loc = e.limbs !== undefined && !opts.trueDmg && (wc === 'rifle' || wc === 'shotgun' || wc === 'vmg');
+  if (loc) {
+    if (wc === 'shotgun') {
+      if (!special) e.hp = 0;                                                 // a normal zombie is one-shot by buckshot
+      else { e.hp -= a * 1.6; if (Math.random() < .5) severZedPart(e, srcAng, Math.random() < .5 ? 'arm' : 'leg'); }
+    } else if (wc === 'vmg') {
+      e.hp -= special ? a * 1.8 : a * 4.5;                                    // vehicle MG shreds a normal zombie in 1–2 rounds
+      severZedPart(e, srcAng, Math.random() < .5 ? 'arm' : 'leg');           // and tears a limb off with every hit
+    } else {                                                                  // assault rifle: random hit location
+      const r = Math.random();
+      // torso does at least a set fraction of max HP so a normal zombie always drops in ~3–5 body rounds (a stronger gun still counts for more)
+      const torso = Math.max(a, e.maxHp * (special ? .12 : .24));
+      if (r < .16) { if (!special) e.hp = 0; else e.hp -= a * 2.5; }         // head — instant on a normal zombie
+      else if (r < .66) e.hp -= torso;                                       // torso — takes 3–5 rounds
+      else if (r < .84) { e.hp -= a * .35; severZedPart(e, srcAng, 'arm'); } // arm — dismember, disables its attack
+      else { e.hp -= a * .35; severZedPart(e, srcAng, 'leg'); }             // leg — dismember, disables its movement
+    }
+  } else {
+    e.hp -= a;                                                               // splash / fire / melee: plain damage
+  }
+  fxGore(e.x, e.y, srcAng, Math.min(7, 1 + a / 13), M ? M.blood : '#8f1414');
+  if (e.hp <= 0) killZed(e, srcAng);
+}
+
 function fxCasing(x, y, ang, z) {
   part('casing', x, y, Math.cos(ang - 1.6) * rnd(40, 90), Math.sin(ang - 1.6) * rnd(40, 90), rnd(.7, (z ? 2.4 : 1.2)), 1.4, '#c9a33d',
     { z: (z || 0) + 12, vz: rnd(60, 130), vr: rnd(-14, 14), drag: .985, g: 520, bounce: 1 });
@@ -4210,8 +4252,11 @@ function damage(e, amt, srcAng, opts) {
   let a = amt;
   if (!opts.trueDmg) a = Math.max(1, a - (e.armor || 0));
   if (e.kind === 'unit' && e.inside) { if (e.inside.kind === 'unit') return; a *= .22; }   // troops inside a transport are shielded by its hull
-  e.hp -= a; e.hurt = .22;
+  // special zombies are twice as hard to put down — every source of damage counts half
+  if (e.kind === 'zed' && e.def.special && !opts.trueDmg) a *= 0.5;
+  e.hurt = .22;
   if (e.kind === 'zed' && e.def.struct) {
+    e.hp -= a;
     // timber and thatch: splinters instead of blood, and every hit knocks pieces off that tumble away (the model sheds parts as HP drops)
     e.lastHit = G.t;
     fxSpark(e.x + rnd(-e.r * .6, e.r * .6), e.y + rnd(-e.r * .5, e.r * .5), rnd(TAU), 3, '#c9a86a');
@@ -4219,17 +4264,16 @@ function damage(e, amt, srcAng, opts) {
     if (a > 8 && Math.random() < .6) fxSmoke(e.x + rnd(-e.r * .4, e.r * .4), e.y + rnd(-e.r * .3, e.r * .3), rnd(-4, 4), -6, 4, 1.4, 'rgba(60,58,54,1)');
     if (e.hp <= 0) killZed(e, srcAng);
   } else if (e.kind === 'zed') {
-    const M = MODEL[e.t];
-    fxGore(e.x, e.y, srcAng, Math.min(7, 1 + a / 13), M ? M.blood : '#8f1414');
-    if (e.hp > 0 && e.limbs && Math.random() < clamp(a / (e.maxHp * .55), .05, .8)) severLimb(e, srcAng);
-    if (e.hp <= 0) killZed(e, srcAng);
+    applyZedDamage(e, a, srcAng, opts);   // location-based: headshots, torso, limb dismemberment (handles hp itself)
   } else if (e.kind === 'unit') {
+    e.hp -= a;
     e.lastHit = G.t;
     if (e.def.veh) { fxSpark(e.x + rnd(-e.r * .5, e.r * .5), e.y + rnd(-e.r * .5, e.r * .5), rnd(TAU), 3, '#ffd27a'); if (a > 10 && Math.random() < .4) fxDebris(e.x, e.y, 2, '#4a5040'); }
     else fxBlood(e.x, e.y, rnd(TAU), 3, '#b32020');
     if (e.hp > 0 && e.limbs && Math.random() < clamp(a / (e.maxHp * 1.6), 0, .3)) severLimb(e, srcAng);
     if (e.hp <= 0) killUnit(e);
   } else {
+    e.hp -= a;
     e.lastHit = G.t;   // drives the burning / smoking damage state (clears after a minute without hits)
     fxSpark(e.x + rnd(-e.w * TS / 3, e.w * TS / 3), e.y + rnd(-e.h * TS / 3, e.h * TS / 3), rnd(TAU), 4, '#c9a86a');
     if (a > 6 && Math.random() < .45) fxDebris(e.x + rnd(-e.w * TS / 3, e.w * TS / 3), e.y + rnd(-e.h * TS / 3, e.h * TS / 3), 2, '#6a6a60');
@@ -5616,7 +5660,7 @@ function callAirdrop(manual) {
   const by = G.hq && !G.hq.dead ? G.hq.y : BASE_Y;
   for (let i = 0; i < n; i++) {
     const p = dropPoint(bx, by, 4 * TS, 9 * TS) || { x: bx, y: by };
-    G.crates.push({ x: p.x, y: p.y, z: 360 + i * 40, vz: 0, amt: manual ? 90 : 110, chute: 1, claimed: null, life: 999, bob: rnd(TAU), landed: false });
+    G.crates.push({ x: p.x, y: p.y, z: 360 + i * 40, vz: 0, amt: manual ? 90 : 110, chute: 1, flare: 1, claimed: null, life: 999, bob: rnd(TAU), landed: false });
   }
   alertMsg(manual ? 'Emergency drop inbound' : 'Supply drop inbound at the base', 'info');
   AU.ui('ready');
@@ -6258,13 +6302,14 @@ function fire(src, tgt, wep, muz) {
   const base = angTo(m.x, m.y, px, py);
   const spread = wep.spread * (G.night && !G.up.nvg && !(src.def && src.def.nightSight) && litAt(src.x, src.y) < .4 && !towerAt(src.x, src.y) ? 1.6 : 1) * paceSpread(src);
   const dmg = wep.dmg * dmgMul(src) * bd;
+  const wc = weaponClass(src, wep);
   for (let i = 0; i < shots; i++) {
     const a = base + rnd(-spread, spread);
     const spd = wep.spd * (shots > 1 ? rnd(.85, 1.1) : 1);
     const life = (wep.rng * rngMul(src) * (shots > 1 ? 1.05 : 1.35)) / spd;
     G.bullets.push({
       x: m.x, y: m.y, px: m.x, py: m.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
-      dmg, splash: wep.splash || 0, kind: wep.kind, life, life0: life,
+      dmg, splash: wep.splash || 0, kind: wep.kind, life, life0: life, wc,
       ang: a, smoke: wep.smokeTrail, team: 1, tm: plyOf(src).team, src, tier, pierce: wep.pierce || 0,
       z: 9 + srcZ, z0: 9 + srcZ, zg: 9, fly: (src.def && src.def.fly) ? 1 : 0
     });
@@ -6365,9 +6410,12 @@ function updateZeds(dt) {
     // capture mission fulfilled or void → switch to seek-and-destroy
     if (z.mission === 'capture' && (!z.missionTarget || z.missionTarget.dead || z.missionTarget.owner === 'invader')) z.mission = 'raid';
     const t = z.target;
-    // a body missing legs does not move like one that still has them
+    // a body missing legs does not move like one that still has them: one leg gone → 50%, both gone → a 5% crawl
     const legs = ((z.limbs & 4) ? 1 : 0) + ((z.limbs & 8) ? 1 : 0);
-    z.spd = z.def.spd * nightSpd * (legs === 2 ? 1 : legs === 1 ? .55 : .26);
+    z.spd = z.def.spd * nightSpd * (legs === 2 ? 1 : legs === 1 ? .5 : .05);
+    // arms drive the bite: one arm gone → half attack speed, both gone → a feeble 5% cadence and a tenth of the damage
+    const arms = ((z.limbs & 1) ? 1 : 0) + ((z.limbs & 2) ? 1 : 0);
+    const atkRate = arms === 2 ? 1 : arms === 1 ? 2 : 20, atkDmg = arms >= 1 ? 1 : 0.1;
 
     /* ---- countermeasure flares: a lit aircraft lures the horde toward it ---- */
     if (G.flareDecoys && G.flareDecoys.length) {
@@ -6415,12 +6463,12 @@ function updateZeds(dt) {
 
     if (z.def.ranged && t.kind !== 'build' && d < z.def.ranged) {
       z.ang = angLerp(z.ang, angTo(z.x, z.y, t.x, t.y), .12);
-      if (z.cd <= 0) { zedFire(z, t); z.cd = z.def.rate; }
+      if (z.cd <= 0) { zedFire(z, t); z.cd = z.def.rate * atkRate; }
     } else if (d <= reach) {
       z.ang = angLerp(z.ang, angTo(z.x, z.y, t.x, t.y), .2);
       if (z.cd <= 0) {
-        z.cd = z.def.rate * (z.slow > 0 ? 1.7 : 1); z.lunge = .18;
-        damage(t, z.def.dmg * ((G.diff && G.diff.dmgMul) || 1), angTo(z.x, z.y, t.x, t.y));
+        z.cd = z.def.rate * (z.slow > 0 ? 1.7 : 1) * atkRate; z.lunge = .18;
+        damage(t, z.def.dmg * ((G.diff && G.diff.dmgMul) || 1) * atkDmg, angTo(z.x, z.y, t.x, t.y));
         AU.splat(z.x, z.y);
         if (t.kind === 'build' && t.def.thorns) damage(z, t.def.thorns, 0, { trueDmg: true });
       }
@@ -6593,7 +6641,7 @@ function updateBullets(dt) {
           if (z.dead) continue; const rr = z.r + 5;
           if (dist2(z.x, z.y, b.x, b.y) < rr * rr) {
             if (!b._hit) b._hit = {};
-            if (!b._hit[z.id]) { b._hit[z.id] = 1; damage(z, b.dmg, b.ang); fxSpark(b.x, b.y, b.ang + Math.PI, 3, '#ffe0a8'); }
+            if (!b._hit[z.id]) { b._hit[z.id] = 1; damage(z, b.dmg, b.ang, { wc: b.wc }); fxSpark(b.x, b.y, b.ang + Math.PI, 3, '#ffe0a8'); }
           }
         }
       } else {
@@ -6601,7 +6649,7 @@ function updateBullets(dt) {
       }
       if (!hit && G.players.length > 1) {                                 // PvP: rounds also strike the other teams' troops and structures
         const ul = G.hUnits.near(b.x, b.y, 26, _q3);
-        for (const u of ul) { if (u.dead || u.inside || plyOf(u).team === b.tm) continue; const rr = u.r + 3; if (dist2(u.x, u.y, b.x, b.y) < rr * rr) { if (b.pierce) { if (!b._hit) b._hit = {}; if (!b._hit['u' + u.id]) { b._hit['u' + u.id] = 1; damage(u, b.dmg, b.ang); } } else { hit = u; break; } } }
+        for (const u of ul) { if (u.dead || u.inside || plyOf(u).team === b.tm) continue; const rr = u.r + 3; if (dist2(u.x, u.y, b.x, b.y) < rr * rr) { if (b.pierce) { if (!b._hit) b._hit = {}; if (!b._hit['u' + u.id]) { b._hit['u' + u.id] = 1; damage(u, b.dmg, b.ang, { wc: b.wc }); } } else { hit = u; break; } } }
         if (!hit) { const bb = buildingAtTile((b.x / TS) | 0, (b.y / TS) | 0); if (bb && !bb.dead && !bb.def.flat && plyOf(bb).team !== b.tm) hit = bb; }
       }
     } else {
@@ -6634,7 +6682,7 @@ function updateBullets(dt) {
         if (b.team === 1) { fxExplosion(b.x, b.y, b.kind === 'rocket' ? 52 : 34); areaDamage(b.x, b.y, b.splash, b.dmg, false, true, b.tm); }
         else { fxExplosion(b.x, b.y, 26, '#9bd15c', '#4e7a22'); areaDamage(b.x, b.y, b.splash, b.dmg, true, false); }
       } else if (hit) {
-        damage(hit, b.dmg, b.ang);
+        damage(hit, b.dmg, b.ang, { wc: b.wc });
         fxSpark(b.x, b.y, b.ang + Math.PI, 4, hit.kind === 'build' ? '#c9a86a' : '#ff9a6a');
       } else {
         terrainHit(b.x, b.y, b.ang);      // splash on water, chips on rock, dirt puff, etc.
@@ -10644,27 +10692,27 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       const sway = air ? Math.sin(G.t * 1.3 + seed) * .13 : 0;                                        // gentle pendulum swing under the canopy
       const swx = Math.sin(G.t * 1.3 + seed) * .5 * sc, swz = Math.cos(G.t * 1.1 + seed) * .4 * sc;
       const x = c.x * K + (air ? swx : 0), z = c.y * K + (air ? swz : 0), y = gyc + (c.z || 0) * K;
-      const spin = c.landed ? (c._rest !== undefined ? c._rest : (c._rest = seed)) : (G.t * .5 + seed);   // slow, steady turn in the air; frozen once down
+      const spin = (c._rest !== undefined ? c._rest : (c._rest = seed));   // a fixed resting heading — the crate does not spin
       // the crate itself: pallet base + banded box + cross strap
       put(P.box, x, y + .22 * sc, z, sway * .4, spin, sway, .5 * sc, .34 * sc, .42 * sc, CRATE);
       put(P.box, x, y + .05 * sc, z, sway * .4, spin, sway, .56 * sc, .12 * sc, .46 * sc, BOOT);
       put(P.box, x, y + .23 * sc, z, sway * .4, spin, sway, .58 * sc, .36 * sc, .1 * sc, BOOT);
       if (air) {
-        const cy2 = y + 2.0 * sc, rimR = 1.7 * sc;
-        // canopy: a billowing dome (two stacked scaled spheres) plus a coloured cap
-        put(P.head, x, cy2, z, 0, spin * .3, 0, rimR * 2, 1.1 * sc, rimR * 2, CHUTE);
-        put(P.head, x, cy2 + .18 * sc, z, 0, spin * .3, 0, rimR * 1.3, .7 * sc, rimR * 1.3, CHUTE2);
+        // a small canopy — about twice the crate's width — a short way above the box
+        const cy2 = y + 1.15 * sc, W = 1.0 * sc;                      // W ≈ 2× the crate (crate box is ~.5)
+        put(P.head, x, cy2, z, 0, spin * .3, 0, W, .58 * sc, W, CHUTE);
+        put(P.head, x, cy2 + .12 * sc, z, 0, spin * .3, 0, W * .64, .38 * sc, W * .64, CHUTE2);
         // shroud lines from the crate up to the canopy rim
-        const lean = Math.atan2(rimR * .8, cy2 - y), midY = (y + .4 * sc + cy2) * .5;
+        const rimR = W * .5, lean = Math.atan2(rimR * .8, cy2 - y), midY = (y + .35 * sc + cy2) * .5;
         for (let k = 0; k < 4; k++) {
           const ax = k === 0 ? 1 : k === 1 ? -1 : 0, az = k === 2 ? 1 : k === 3 ? -1 : 0;
-          put(P.cyl, x + ax * rimR * .5, midY, z + az * rimR * .5, az * -lean, 0, ax * -lean, .02 * sc, (cy2 - y) * 1.02, .02 * sc, CORD);
+          put(P.cyl, x + ax * rimR * .6, midY, z + az * rimR * .6, az * -lean, 0, ax * -lean, .015 * sc, (cy2 - y) * 1.0, .015 * sc, CORD);
         }
       } else {
-        // a collapsed parachute draped on the ground beside the crate once it's down
-        put(P.cloth, x + .55 * sc, gyc + .04, z + .35 * sc, -HPI + .12, spin + .3, .08, 2.3 * sc, 1.7 * sc, .03, CHUTE);
-        put(P.cloth, x - .15 * sc, gyc + .06, z - .45 * sc, -HPI - .1, spin - .5, -.06, 1.7 * sc, 1.5 * sc, .03, CHUTE2);
-        for (let k = 0; k < 3; k++) put(P.cyl, x + (k - 1) * .4 * sc, gyc + .04, z + .1 * sc, HPI, spin + k, 0, .015 * sc, 1.4 * sc, .015 * sc, CORD);   // slack lines
+        // a collapsed parachute (~2× the crate) draped on the ground beside it once it's down
+        put(P.cloth, x + .5 * sc, gyc + .04, z + .3 * sc, -HPI + .12, spin + .3, .08, 1.2 * sc, 1.0 * sc, .03, CHUTE);
+        put(P.cloth, x - .1 * sc, gyc + .06, z - .35 * sc, -HPI - .1, spin - .5, -.06, .95 * sc, .85 * sc, .03, CHUTE2);
+        for (let k = 0; k < 3; k++) put(P.cyl, x + (k - 1) * .3 * sc, gyc + .04, z + .1 * sc, HPI, spin + k, 0, .012 * sc, .9 * sc, .012 * sc, CORD);   // slack lines
       }
     }
     for (const p of G.pickups) { if (p.x < vx0 || p.x > vx1 || p.y < vy0 || p.y > vy1) continue; put(P.metal, p.x * K, groundY(p.x, p.y) + .1 + Math.sin(p.bob) * .03, p.y * K, .3, p.bob, .2, .18, .12, .16, SCRAP); }
@@ -10721,7 +10769,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     for (const u of G.units) if (!u.dead && !u.inside && u.hp < u.maxHp && u.x > vx0 && u.x < vx1 && u.y > vy0 && u.y < vy1) bar(u.x, u.y, groundY(u.x, u.y) + (u.def.fly ? (u.def.alt || 150) * K * ALTK : 0) + u.r * K * 2.4, 22, u.hp / u.maxHp, '#4de08c');
     // multiplayer: a small team-colour pip above every unit so you can read who owns what at a glance
     if (G.mp) for (const u of G.units) { if (u.dead || u.inside || u.x < vx0 || u.x > vx1 || u.y < vy0 || u.y > vy1) continue; const sc2 = toScreen(u.x, u.y, groundY(u.x, u.y) + (u.def.fly ? (u.def.alt || 150) * K * ALTK : 0) + u.r * K * (u.def.veh ? 3.0 : 2.9)); if (sc2[2] > 1) continue; const col = (TEAM_COL[plyOf(u).team]) || '#8dffbe'; ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.beginPath(); ctx.moveTo(sc2[0], sc2[1] + 1); ctx.lineTo(sc2[0] - 4, sc2[1] - 6); ctx.lineTo(sc2[0] + 4, sc2[1] - 6); ctx.closePath(); ctx.fill(); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(sc2[0], sc2[1]); ctx.lineTo(sc2[0] - 3.2, sc2[1] - 5.2); ctx.lineTo(sc2[0] + 3.2, sc2[1] - 5.2); ctx.closePath(); ctx.fill(); }
-    let hb = 0; for (const zz of G.zeds) { if (zz.dead || zz.hp >= zz.maxHp || zz.x < vx0 || zz.x > vx1 || zz.y < vy0 || zz.y > vy1) continue; if (hb++ > 260) break; bar(zz.x, zz.y, groundY(zz.x, zz.y) + 1.1, 16, zz.hp / zz.maxHp, zz.med ? '#ff9a5a' : '#d24545'); }
+    let hb = 0; for (const zz of G.zeds) { if (zz.dead || zz.def.struct || zz.hp >= zz.maxHp || zz.x < vx0 || zz.x > vx1 || zz.y < vy0 || zz.y > vy1) continue; if (hb++ > 260) break; const bh = groundY(zz.x, zz.y) + zz.r * K * 2.1 + .55, bw = zz.def.big ? 26 : zz.def.special ? 20 : 15, bf = clamp(zz.hp / zz.maxHp, 0, 1); bar(zz.x, zz.y, bh, bw, bf, zz.def.special ? '#c05adf' : zz.med ? '#ff9a5a' : '#d24545'); }
     for (const b of G.builds) if (!b.dead && b.hp < b.maxHp && b.x > vx0 && b.x < vx1 && b.y > vy0 && b.y < vy1) bar(b.x, b.y, groundY(b.x, b.y) + (b.def.hgt || 30) * K + .3, 30, b.hp / b.maxHp, '#4de08c');
     ctx.font = 'bold 12px ui-monospace,monospace'; ctx.textAlign = 'center';
     for (const t of G.texts) { const s = toScreen(t.x, t.y, groundY(t.x, t.y) + 1.2); ctx.globalAlpha = Math.min(1, t.life / .4); ctx.fillStyle = 'rgba(0,0,0,.75)'; ctx.fillText(t.txt, s[0] + 1, s[1] + 1); ctx.fillStyle = t.col; ctx.fillText(t.txt, s[0], s[1]); }
