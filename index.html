@@ -2261,7 +2261,7 @@ const UDEF = {
   },
   support: {
     name: 'Support', key: 'U', g: '🎒', hp: 105, spd: 74, r: 10, sight: 300, armor: 0, pop: 1,
-    cost: { s: 70, c: 0 }, time: 12, spr: 'support', hauler: true, ghost: true,
+    cost: { s: 70, c: 0 }, time: 12, spr: 'support', hauler: true,
     wep: { dmg: 6, rng: 165, cd: .065, spread: .13, spd: 980, kind: 'bullet', sfx: 'smg', casings: 1, sustain: true, mag: 32, reload: 2.1 },
     desc: 'Fast scout with an MP5. The only trooper who hauls supply on their own — they range out on their own initiative to find crates and bring them in.'
   },
@@ -5230,7 +5230,12 @@ function nearestOpen(tx, ty, forPlayer) {
   for (let r = 1; r <= 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; if (inMap(tx + dx, ty + dy) && !tileSolid(tx + dx, ty + dy, forPlayer)) return [tx + dx, ty + dy]; }
   return null;
 }
-function findPath(x0, y0, x1, y1, forPlayer) {
+/* is a tile next to a building/obstacle? used to keep routes a berth away from walls */
+function nearWall(tx, ty, forPlayer) {
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; if (tileSolid(tx + dx, ty + dy, forPlayer)) return true; }
+  return false;
+}
+function findPath(x0, y0, x1, y1, forPlayer, clear) {
   if (lineClear(x0, y0, x1, y1, forPlayer)) return null;                      // nothing in the way: go straight
   const s = nearestOpen((x0 / TS) | 0, (y0 / TS) | 0, forPlayer), g = nearestOpen((x1 / TS) | 0, (y1 / TS) | 0, forPlayer);
   if (!s || !g) return null;
@@ -5247,7 +5252,9 @@ function findPath(x0, y0, x1, y1, forPlayer) {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dy) continue; const nx = cx + dx, ny = cy + dy; if (!inMap(nx, ny) || tileSolid(nx, ny, forPlayer)) continue;
       if (dx && dy && (tileSolid(cx + dx, cy, forPlayer) || tileSolid(cx, cy + dy, forPlayer))) continue;   // no corner cutting
-      const nk = key(nx, ny), ng = g0 + (dx && dy ? 1.41 : 1);
+      // haulers (clear>0) pay extra to hug a wall, so their route naturally keeps a berth from buildings
+      const pen = clear && nearWall(nx, ny, forPlayer) ? 3 : 0;
+      const nk = key(nx, ny), ng = g0 + (dx && dy ? 1.41 : 1) + pen;
       if (ng < (gs.has(nk) ? gs.get(nk) : 1e9)) { gs.set(nk, ng); came.set(nk, k); push(ng + h(nx, ny), nk); }
     }
   }
@@ -5264,7 +5271,7 @@ function routeTo(u, o, gx, gy, arrive) {
   const moved = o._route === undefined || Math.abs(o._rx - gx) + Math.abs(o._ry - gy) > TS * 1.5;
   if (moved || G.t - (o._rt || 0) > 4) {
     o._rx = gx; o._ry = gy; o._rt = G.t;
-    const p = findPath(u.x, u.y, gx, gy, true); o._route = p || null; o._ri = 0;
+    const p = findPath(u.x, u.y, gx, gy, true, u.def && u.def.hauler ? 1 : 0); o._route = p || null; o._ri = 0;
   }
   const r = o._route; if (!r) return [gx, gy, arrive];
   while (o._ri < r.length - 1 && dist2(u.x, u.y, r[o._ri].x, r[o._ri].y) < (TS * .8) * (TS * .8)) o._ri++;
@@ -5293,7 +5300,12 @@ function steer(e, dt, tx, ty, friendly, arrive) {
   // at the target through whatever's in the way (no obstacle deflection)
   const phasing = e.phaseT > 0, ghost = e.def && e.def.ghost;
   // desired heading toward the goal, deflected around obstacles
-  let [ax, ay] = (phasing || ghost) ? [dx / d, dy / d] : avoid(e, dt, dx / d, dy / d, friendly);
+  let ax, ay;
+  if (phasing || ghost) { ax = dx / d; ay = dy / d; }
+  else if (e._sideT > 0) {                                   // sidestep: hung up on something for 2s → walk mostly left/right to slide off it
+    e._sideT -= dt; const s = e._sideSign || 1;
+    ax = dx / d * .3 - dy / d * s; ay = dy / d * .3 + dx / d * s;
+  } else [ax, ay] = avoid(e, dt, dx / d, dy / d, friendly);
 
   // separation from same-team neighbours, softened and capped so bodies settle
   const list = friendly ? G.hUnits.near(e.x, e.y, 46, _q) : G.hZeds.near(e.x, e.y, 40, _q);
@@ -5326,7 +5338,11 @@ function steer(e, dt, tx, ty, friendly, arrive) {
   if (friendly) {
     const prog = Math.hypot(e.x - ox, e.y - oy);
     if (prog < spd * dt * .4) e.stuckT = (e.stuckT || 0) + dt; else e.stuckT = 0;
-    if (e.stuckT > 0.35 && d < arr * 4) { e.stuckT = 0; e.phaseT = 0; e._dmin = undefined; e.vx = e.vy = 0; return true; }
+    if (e.stuckT > 0.35 && d < arr * 4) { e.stuckT = 0; e.phaseT = 0; e._dmin = undefined; e._jamT = 0; e._sideT = 0; e.vx = e.vy = 0; return true; }
+    // sidestep watchdog: if the unit has barely changed position for ~2s while still trying to travel, it's snagged
+    // on a building corner — walk left or right (alternating sides) for a moment to slip past it.
+    if (prog < Math.max(1.6, spd * dt * .3)) e._jamT = (e._jamT || 0) + dt; else e._jamT = 0;
+    if (e._jamT > 2 && d > arr * 1.5 && !(e._sideT > 0) && !ghost) { e._sideT = .7; e._sideSign = (e._sideSign === 1 ? -1 : 1); e._jamT = 0; }
     // net-progress watchdog: if the unit hasn't actually gotten closer to its target for a while (it's sliding
     // against a wall or wedged), phase THROUGH buildings/props so it can NEVER be permanently jammed. Once phasing
     // starts we commit to it — walking straight at the target through everything — until there's a clear straight
@@ -5338,7 +5354,7 @@ function steer(e, dt, tx, ty, friendly, arrive) {
         e._phaseTot = (e._phaseTot || 0) + dt;
         if (d < arr * 2 || lineClear(e.x, e.y, tx, ty, true) || e._phaseTot > 6) { e.phaseT = 0; e._phaseTot = 0; e._dmin = d; e._stallT = 0; }
         else e.phaseT = 0.5;                                  // keep the phase alive while still boxed in
-      } else if (e._stallT > 1.1 && d > arr * 2) { e.phaseT = 0.5; e._phaseTot = 0; e._stallT = 0; }
+      } else if (e._stallT > 5 && d > arr * 2) { e.phaseT = 0.5; e._phaseTot = 0; e._stallT = 0; }   // truly sealed in for 5s: phase out as a last resort
     }
     // crammed shoulder-to-shoulder near the goal: this is as close as it gets
     if (d < arr * 4 && n >= 3) {
@@ -5451,6 +5467,19 @@ function randomLandPoint(cx, cy, minR, maxR) {
     if (!IMPASSABLE(t)) return { x, y };
   }
   return null;
+}
+/* is this spot clear of every building footprint (plus a margin)? */
+function clearOfBuildings(x, y, pad) {
+  pad = pad === undefined ? TS : pad;
+  for (const b of G.builds) { if (b.dead) continue; if (Math.abs(x - b.x) < b.w * TS * .5 + pad && Math.abs(y - b.y) < b.h * TS * .5 + pad) return false; }
+  return true;
+}
+/* a landing spot for an airdrop: on open land AND clear of buildings, so crates never come down inside your base */
+function dropPoint(cx, cy, minR, maxR) {
+  for (let a = 0; a < 50; a++) { const p = randomLandPoint(cx, cy, minR, maxR); if (!p) break; if (clearOfBuildings(p.x, p.y, TS * 1.3)) return p; }
+  const bx = G.hq && !G.hq.dead ? G.hq.x : BASE_X, by = G.hq && !G.hq.dead ? G.hq.y : BASE_Y;
+  for (let r = 6; r < 40; r++) for (let k = 0; k < 6; k++) { const an = rnd(TAU), x = clamp(bx + Math.cos(an) * r * TS, TS * 4, WW - TS * 4), y = clamp(by + Math.sin(an) * r * TS, TS * 4, WH - TS * 4); if (!IMPASSABLE(terrainAt(x, y)) && clearOfBuildings(x, y, TS * 1.3)) return { x, y }; }
+  return randomLandPoint(cx, cy, minR, maxR) || { x: bx, y: by };
 }
 
 /* scatter the dead across the whole continent before the player ever moves */
@@ -5586,7 +5615,7 @@ function callAirdrop(manual) {
   const bx = G.hq && !G.hq.dead ? G.hq.x : BASE_X;
   const by = G.hq && !G.hq.dead ? G.hq.y : BASE_Y;
   for (let i = 0; i < n; i++) {
-    const p = randomLandPoint(bx, by, 60, 8 * TS) || { x: bx, y: by };
+    const p = dropPoint(bx, by, 4 * TS, 9 * TS) || { x: bx, y: by };
     G.crates.push({ x: p.x, y: p.y, z: 360 + i * 40, vz: 0, amt: manual ? 90 : 110, chute: 1, claimed: null, life: 999, bob: rnd(TAU), landed: false });
   }
   alertMsg(manual ? 'Emergency drop inbound' : 'Supply drop inbound at the base', 'info');
@@ -5596,7 +5625,7 @@ function callAirdrop(manual) {
 /* A heavy pallet put down anywhere on the continent, burning a flare so you
    can actually find it. Worth several ordinary drops — if you can reach it. */
 function callBigDrop() {
-  const p = randomLandPoint();
+  const p = dropPoint();
   if (!p) return;
   G.crates.push({
     x: p.x, y: p.y, z: 520, vz: 0, amt: rndi(380, 560), chute: 1, big: 1, flare: 1,
@@ -9131,7 +9160,11 @@ function cardFor() {
     }
     if (units.some(u => !u.def.veh)) {
       const foot = units.filter(u => !u.def.veh), on = foot.every(u => u.flash);
-      btns.push({ g: '🔦', n: on ? 'Light On' : 'Flashlight', k: 'I', act: on, tip: 'Toggle each trooper\'s flashlight: a beam that lights the ground ahead at night — handy to see, but it shows the horde where you are.', fn: () => { const v = !on; for (const u of foot) u.flash = v; AU.ui('ok'); refreshCard(true); } });
+      btns.push({ g: '🔦', n: on ? 'Light On' : 'Flashlight', k: 'I', act: on, tip: 'Toggle each trooper\'s flashlight: a beam thrown on the ground the way they face at night — handy to see, but it shows the horde where you are.', fn: () => { const v = !on; for (const u of foot) u.flash = v; AU.ui('ok'); refreshCard(true); } });
+    }
+    if (units.some(u => u.def.fly && u.def.rotor)) {
+      const heli = units.filter(u => u.def.fly && u.def.rotor), on = heli.every(u => u.flash);
+      btns.push({ g: '🔦', n: on ? 'Spotlight On' : 'Spotlight', k: 'O', act: on, tip: 'Toggle the helicopter\'s searchlight — a bright pool of light cast straight down onto the ground below to light up the area at night.', fn: () => { const v = !on; for (const u of heli) u.flash = v; AU.ui('ok'); refreshCard(true); } });
     }
     if (units.some(u => u.inside)) btns.push({ g: '🚪', n: 'Exit', k: 'U', tip: 'Leave the culvert.', fn: () => { for (const u of units) if (u.inside) unloadOne(u); } });
     return btns;
@@ -10152,7 +10185,15 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       else if (!mask) { g.add(box(.96, ht, .5, wall, 0, ht / 2, 0)); g.add(box(1, .08, .58, trim, 0, ht + .04, 0)); }
       else arms(wall, trim, .46);
     }
-    else if (b.t === 'turret') { sandbagRing(g, .72, 11, .2); g.add(cyl(.5, .5, .04, matFor('#1e201b'), 0, .02, 0, 'y')); const gun = new THREE.Group(); gun.position.y = .42; for (let i = 0; i < 3; i++) gun.add(box(.03, .42, .03, TRACK, Math.cos(i * 2.1) * .12, -.2, Math.sin(i * 2.1) * .12)); gun.add(cyl(.028, .034, .85, BARREL, .45, .04, 0, 'x')); gun.add(box(.24, .14, .16, TRACK, 0, .04, 0)); gun.add(box(.1, .1, .08, matFor('#4a5a30'), -.05, .1, .1)); g.add(gun); g.userData.gun = gun; }
+    else if (b.t === 'turret') { sandbagRing(g, .72, 11, .2); g.add(cyl(.5, .5, .04, matFor('#1e201b'), 0, .02, 0, 'y')); const gun = new THREE.Group(); gun.position.y = .42; for (let i = 0; i < 3; i++) gun.add(box(.03, .42, .03, TRACK, Math.cos(i * 2.1) * .12, -.2, Math.sin(i * 2.1) * .12)); gun.add(cyl(.028, .034, .85, BARREL, .45, .04, 0, 'x')); gun.add(box(.24, .14, .16, TRACK, 0, .04, 0)); gun.add(box(.1, .1, .08, matFor('#4a5a30'), -.05, .1, .1));
+      // gunner crouched behind the weapon, hands on the grips — rides the gun group so he always faces where it aims
+      { const UNI = matFor('#4a5a3a', PANEL), HELM = matFor('#3e4a30', PANEL), SK = matFor('#c9a684'), gx = -.28;
+        gun.add(box(.22, .34, .28, UNI, gx, -.02, 0)); gun.add(box(.24, .07, .3, matFor('#33482f'), gx, .06, 0));            // torso + plate carrier
+        gun.add(sph(.095, SK, gx + .04, .22, 0)); gun.add(sph(.11, HELM, gx + .04, .25, 0, 1, .82, 1));                       // head + helmet
+        for (const s of [-1, 1]) gun.add(box(.34, .07, .07, UNI, gx + .2, .1, s * .11, 0, 0, -.28));                          // arms forward to the grips
+        for (const s of [-1, 1]) gun.add(box(.1, .22, .12, matFor('#3a4a2e'), gx - .02, -.28, s * .1));                       // knees / legs crouched
+      }
+      g.add(gun); g.userData.gun = gun; }
     else if (b.t === 'mortarpit') { sandbagRing(g, 1.15, 16, .2); g.add(cyl(.9, .9, .04, matFor('#3a352c', { map: TEX.dirt }), 0, .02, 0, 'y')); g.add(cyl(.09, .1, .85, BARREL, .12, .42, 0)); g.children[g.children.length - 1].rotation.z = .5; g.add(box(.6, .06, .6, TRACK, 0, .05, 0)); g.add(box(.04, .5, .04, TRACK, -.22, .3, .18, .4, 0, 0)); g.add(box(.04, .5, .04, TRACK, -.22, .3, -.18, -.4, 0, 0)); for (let i = 0; i < 4; i++) g.add(box(.12, .18, .12, matFor('#6a6a4a'), -.7 + i * .12, .09, .6)); }
     else if (b.t === 'tower') { const WD = matFor('#6a5a44', WOODM); for (const s of [[-.4, -.4], [.4, -.4], [-.4, .4], [.4, .4]]) g.add(box(.1, ht, .1, WD, s[0], ht / 2, s[1])); for (const yy of [ht * .33, ht * .66]) for (const s of [-1, 1]) { g.add(box(.9, .05, .05, WD, 0, yy, s * .4, 0, 0, 0)); g.add(box(.05, .05, .9, WD, s * .4, yy, 0)); } g.add(box(1.25, .1, 1.25, WD, 0, ht, 0)); for (const s of [-1, 1]) { g.add(box(1.25, .3, .05, WD, 0, ht + .2, s * .6)); g.add(box(.05, .3, 1.25, WD, s * .6, ht + .2, 0)); } for (const s of [[-.55, -.55], [.55, -.55], [-.55, .55], [.55, .55]]) g.add(box(.07, .9, .07, WD, s[0], ht + .45, s[1])); g.add(box(1.4, .08, 1.4, roof, 0, ht + .92, 0)); const lamp = box(.2, .2, .2, matFor('#eef4ff', { emissive: lin('#dfeeff'), emissiveIntensity: .8 }), 0, ht + .28, 0); g.add(lamp); g.userData.lamp = lamp; g.add(cyl(.03, .03, .7, BARREL, .3, ht + .4, .3, 'x')); }
     else if (b.t === 'flood') {
@@ -10421,6 +10462,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
   /* ======================= the frame ======================= */
   let lastPX = 1e9, lastPY = 1e9, lastNB = -1, dayNow = 1;
   const LEAF = ['#3f7a2e', '#2c5a22', '#5c7d40', '#2f4a30', '#6b8a3a'].map(col3), BUSHC = [col3('#35582a'), col3('#4a6a30')], CRATE = col3('#8a7a4a'), SCRAP = col3('#b8b0a0'), AIRSHADOW = col3('#101010'), FLAG = { player: col3('#3f7bd6'), invader: col3('#b23030'), neutral: col3('#c9b45a') };
+  const CHUTE = col3('#e8e4d6'), CHUTE2 = col3('#c96a3a'), CORD = col3('#3a352c');
   const MEAT = c => { const v = rgbOf(c); return v[0] > v[1] * 1.8 || (v[1] > v[0] * 1.6 && v[1] > v[2] * 1.6); };   // red blood or spitter green
   function underBuild(x, y) { if (!G.baseBox || x < G.baseBox.x0 || x > G.baseBox.x1 || y < G.baseBox.y0 || y > G.baseBox.y1) return false; for (const b of G.builds) { if (b.dead) continue; if (Math.abs(x - b.x) < b.w * TS * .5 + 4 && Math.abs(y - b.y) < b.h * TS * .5 + 4) return true; } return false; }
   const ALTK = .42;                                                   // flight altitude in the 3D scene (fraction of the sim's px altitude) — keeps aircraft clear of the camera when zoomed in
@@ -10540,6 +10582,12 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
             bb(partsAdd, hx, gy + .42, hz, .35 * dk, 1, .93, .75, .8);                                                   // lamp glow
           }
         }
+        if (d.fly && u.flash) {                                             // helicopter searchlight: a bright pool of light cast straight down onto the ground below
+          const gyb = groundY(u.x, u.y), dk = .45 + (1 - dayNow) * .55, R = (3.4 + (u.altK === undefined ? 1 : u.altK) * 2.6);
+          put(P.beam, x, gyb + .06, z, -HPI, 0, 0, R, R, 1, WHITE);                                  // ground pool
+          bb(partsAdd, x, gyb + .35, z, R * .45 * dk, 1, .98, .9, .7);                                // bright hot spot on the ground
+          bb(partsAdd, x, gy + alt * .5, z, R * .3 * dk, 1, .97, .86, .32);                           // faint shaft of light down from the airframe
+        }
         if (u.sel) put(P.sel, x, gy + .04, z, -HPI, 0, 0, u.r * K * 1.5, u.r * K * 1.5, 1);
         if (u.hp < u.maxHp * .65) { const vs = um.g.scale.x; if (!um.bbox) { um.bbox = new THREE.Box3().setFromObject(um.g); um.bbox.min.sub(um.g.position); um.bbox.max.sub(um.g.position); } const bx = um.bbox; drawDamageState(u, um.g.position.x, um.g.position.y, um.g.position.z, (bx.max.x - bx.min.x) * .4, (bx.max.z - bx.min.z) * .4, Math.max(.3, bx.max.y)); }   // a shot-up vehicle burns and smokes until it is left alone / repaired
       } else {
@@ -10551,8 +10599,8 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
           drawFigure(x, ry, z, u.ang, 0, S, { kind: 'mil', gun: 'none', scale: .92, limbs: u.limbs, id: u.id, rope: 1, ut: u.t });
         } else
         drawFigure(x, gy, z, u.aimT !== undefined && u.def.veh ? u.aimT : u.ang, u.step || 0, S, { kind: 'mil', gun: gunOf(u.t), scale: .92, limbs: u.limbs, id: u.id, ut: u.t });
-        if (u.flash) {                                                          // shoulder flashlight: a narrow beam thrown on the ground ahead of the trooper
-          const fa = (u.aimT !== undefined ? u.aimT : u.ang), ca = Math.cos(fa), sa = Math.sin(fa), L = 5.5, dk = .45 + (1 - dayNow) * .55;
+        if (u.flash) {                                                          // shoulder flashlight: a narrow beam thrown on the ground the way the trooper is facing
+          const fa = u.ang, ca = Math.cos(fa), sa = Math.sin(fa), L = 5.5, dk = .45 + (1 - dayNow) * .55;
           const bx2 = x + ca * .18, bz2 = z + sa * .18;
           put(P.beam, bx2 + ca * L * .5, groundY((bx2 + ca * L * .5) / K, (bz2 + sa * L * .5) / K) + .05, bz2 + sa * L * .5, -HPI, -fa, 0, L, L * .4 * dk, 1, WHITE);
           bb(partsAdd, x + ca * .25, gy + .5, z + sa * .25, .18 * dk, 1, .96, .82, .85);            // muzzle-lamp glow at the barrel
@@ -10590,7 +10638,35 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     for (const [key, wm] of wreckMeshes) if (!liveW.has(key)) { scene3.remove(wm); wreckMeshes.delete(key); }
     for (const [id, g] of ebMeshes) { if (g.userData.live !== G.frame) { const zz = G.zeds.find(q => q.id === id); if (!zz || zz.dead) { scene3.remove(g); ebMeshes.delete(id); } else g.visible = false; } }
     /* ---- supply crates / scrap pickups / toppling trees ---- */
-    for (const c of G.crates) { if (c.x < vx0 || c.x > vx1 || c.y < vy0 || c.y > vy1) continue; const x = c.x * K, z = c.y * K, y = groundY(c.x, c.y) + (c.z || 0) * K; put(P.cloth, x, y + .2, z, 0, c.bob || 0, 0, .5, .4, .4, CRATE); put(P.box, x, y + .2, z, 0, c.bob || 0, 0, .52, .06, .42, BOOT); if (c.chute && !c.landed) bb(partsAlpha, x, y + 1.2, z, 1.6, .9, .9, .92, .85); }
+    for (const c of G.crates) {
+      if (c.x < vx0 || c.x > vx1 || c.y < vy0 || c.y > vy1) continue;
+      const gyc = groundY(c.x, c.y), air = c.chute && !c.landed, sc = c.big ? 1.5 : 1, seed = c.bob || 0;
+      const sway = air ? Math.sin(G.t * 1.3 + seed) * .13 : 0;                                        // gentle pendulum swing under the canopy
+      const swx = Math.sin(G.t * 1.3 + seed) * .5 * sc, swz = Math.cos(G.t * 1.1 + seed) * .4 * sc;
+      const x = c.x * K + (air ? swx : 0), z = c.y * K + (air ? swz : 0), y = gyc + (c.z || 0) * K;
+      const spin = c.landed ? (c._rest !== undefined ? c._rest : (c._rest = seed)) : (G.t * .5 + seed);   // slow, steady turn in the air; frozen once down
+      // the crate itself: pallet base + banded box + cross strap
+      put(P.box, x, y + .22 * sc, z, sway * .4, spin, sway, .5 * sc, .34 * sc, .42 * sc, CRATE);
+      put(P.box, x, y + .05 * sc, z, sway * .4, spin, sway, .56 * sc, .12 * sc, .46 * sc, BOOT);
+      put(P.box, x, y + .23 * sc, z, sway * .4, spin, sway, .58 * sc, .36 * sc, .1 * sc, BOOT);
+      if (air) {
+        const cy2 = y + 2.0 * sc, rimR = 1.7 * sc;
+        // canopy: a billowing dome (two stacked scaled spheres) plus a coloured cap
+        put(P.head, x, cy2, z, 0, spin * .3, 0, rimR * 2, 1.1 * sc, rimR * 2, CHUTE);
+        put(P.head, x, cy2 + .18 * sc, z, 0, spin * .3, 0, rimR * 1.3, .7 * sc, rimR * 1.3, CHUTE2);
+        // shroud lines from the crate up to the canopy rim
+        const lean = Math.atan2(rimR * .8, cy2 - y), midY = (y + .4 * sc + cy2) * .5;
+        for (let k = 0; k < 4; k++) {
+          const ax = k === 0 ? 1 : k === 1 ? -1 : 0, az = k === 2 ? 1 : k === 3 ? -1 : 0;
+          put(P.cyl, x + ax * rimR * .5, midY, z + az * rimR * .5, az * -lean, 0, ax * -lean, .02 * sc, (cy2 - y) * 1.02, .02 * sc, CORD);
+        }
+      } else {
+        // a collapsed parachute draped on the ground beside the crate once it's down
+        put(P.cloth, x + .55 * sc, gyc + .04, z + .35 * sc, -HPI + .12, spin + .3, .08, 2.3 * sc, 1.7 * sc, .03, CHUTE);
+        put(P.cloth, x - .15 * sc, gyc + .06, z - .45 * sc, -HPI - .1, spin - .5, -.06, 1.7 * sc, 1.5 * sc, .03, CHUTE2);
+        for (let k = 0; k < 3; k++) put(P.cyl, x + (k - 1) * .4 * sc, gyc + .04, z + .1 * sc, HPI, spin + k, 0, .015 * sc, 1.4 * sc, .015 * sc, CORD);   // slack lines
+      }
+    }
     for (const p of G.pickups) { if (p.x < vx0 || p.x > vx1 || p.y < vy0 || p.y > vy1) continue; put(P.metal, p.x * K, groundY(p.x, p.y) + .1 + Math.sin(p.bob) * .03, p.y * K, .3, p.bob, .2, .18, .12, .16, SCRAP); }
     if (G.topples) for (const T of G.topples) { if (T.x < vx0 || T.x > vx1 || T.y < vy0 || T.y > vy1) continue; const k = Math.min(1, (T.t || 0) / (T.dur || 1)), x = T.x * K, z = T.y * K, y = groundY(T.x, T.y), sc = T.sc || 1, dir = T.dir || 0, fall = k * k * 1.45; put(P.cyl, x + Math.cos(dir) * Math.sin(fall) * .3 * sc, y + Math.cos(fall) * .3 * sc, z + Math.sin(dir) * Math.sin(fall) * .3 * sc, Math.sin(dir) * fall, 0, -Math.cos(dir) * fall, .08 * sc, .6 * sc, .08 * sc, WOOD); put(P.canopy, x + Math.cos(dir) * Math.sin(fall) * .85 * sc, y + Math.cos(fall) * .85 * sc, z + Math.sin(dir) * Math.sin(fall) * .85 * sc, Math.sin(dir) * fall, 0, -Math.cos(dir) * fall, sc, sc * .85, sc, LEAF[0]); }
     /* ---- bullets ---- */
