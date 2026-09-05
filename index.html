@@ -2356,8 +2356,8 @@ const UDEF = {
     // commander's and loader's .50 cals — each hunts its own target
     weps: [
       // coaxial-style 7.62 machine guns (same weapon family as the Humvee's, cycling faster)
-      { dmg: 8, rng: 24 * 32, cd: .06, spread: .07, spd: 1100, kind: 'bullet', sfx: 'mg', casings: 1, mag: 150, reload: 3.0, mount: [-6, -9], off: 22, slew: .0012, sustain: true },
-      { dmg: 8, rng: 24 * 32, cd: .06, spread: .07, spd: 1100, kind: 'bullet', sfx: 'mg', casings: 1, mag: 150, reload: 3.0, mount: [-6, 9], off: 22, slew: .0012, sustain: true }
+      { dmg: 8, rng: 24 * 32, cd: .06, spread: .07, spd: 1100, kind: 'bullet', sfx: 'mg', casings: 1, mag: 150, reload: 3.0, mount: [-6, -9], off: 22, mz: 1.5, slew: .0012, sustain: true },
+      { dmg: 8, rng: 24 * 32, cd: .06, spread: .07, spd: 1100, kind: 'bullet', sfx: 'mg', casings: 1, mag: 150, reload: 3.0, mount: [-6, 9], off: 22, mz: 1.5, slew: .0012, sustain: true }
     ],
     mgs: [[-6, -9], [-6, 9]],
     desc: '120mm HE main gun with a five-tile blast, plus a fast-cycling machine gun on each turret hatch. Engages three separate targets at once and crushes whatever it drives over.'
@@ -2461,8 +2461,9 @@ const BDEF = {
   },
   tower: {
     name: 'Watchtower', key: 'W', g: '🗼', w: 3, h: 3, mw: 2, mh: 2, hgt: 96, hp: 620, armor: 2, cost: { s: 130, c: 40 }, time: 14,
-    col: ['#4a4a3f', '#33332c'], roof: '#5d5d4e', light: 150, vision: 520, searchlight: true,
-    desc: 'Spotting platform with a sweeping searchlight. Every friendly unit and emplacement within its radius sees and shoots as far as the tower does, day or night.'
+    col: ['#4a4a3f', '#33332c'], roof: '#5d5d4e', light: 150, vision: 520, searchlight: true, nightSight: true,
+    wep: { dmg: 48, rng: 32 * 32, cd: .8, spread: .02, spd: 2200, kind: 'bullet', sfx: 'dmr', casings: 1, pierce: 1, mag: 20, reload: 3.2, dual: 2 },
+    desc: 'Two marksmen on a sweeping-searchlight platform, each with a scoped 7.62 DMR — the tower engages TWO separate targets at once, at extreme range, day or night. Also lets every friendly unit and emplacement within its radius see and shoot as far as it does.'
   },
   airbase: {
     name: 'Airbase', key: 'P', g: '✈️', w: 11, h: 9, mw: 5, mh: 4, hgt: 40, hp: 1600, armor: 3, cost: { s: 400, c: 260 }, time: 30, needs: 'vbay',
@@ -2792,8 +2793,8 @@ function chunkProps(cx, cy) {
   let p = propCache.get(k);
   if (p) return p;
   p = [];
-  // 33 candidate slots per chunk (was 16; trimmed from 40 for −20% trees) → a denser, more forested world
-  for (let i = 0; i < 33; i++) {
+  // 23 candidate slots per chunk (trimmed again for −30% trees) → a lighter-forested world
+  for (let i = 0; i < 23; i++) {
     const hx = hash2(cx * 91 + i * 7, cy * 53 + i * 13);
     const hy = hash2(cx * 37 + i * 3, cy * 71 + i * 19);
     const x = cx * CH + hx * CH, y = cy * CH + hy * CH;
@@ -4115,6 +4116,7 @@ function spawnUnit(t, x, y, silent) {
     ammo: d.wep.mag || 0, reloadT: 0, repairT: 0,
     limbs: 15, step: rnd(TAU), aims: [], cds: [], ammos: [], reloads: [], tgts: []
   };
+  if (G.night && isMine(u)) { if (d.veh && !d.fly) u.headlight = true; else u.flash = true; }   // spawned after dark: lights already on
   G.units.push(u); G.pop += d.pop;
   if (!silent) AU.ui('ready');
   return u;
@@ -5444,6 +5446,12 @@ function updateTime(dt) {
     if (G.night) alertMsg('NIGHTFALL — they move faster in the dark', '');
     else alertMsg('Sunrise. The line held.', 'good');
     AU.ui('alarm');
+    // all your units light up automatically after dark, and go dark again at sunrise
+    for (const u of G.units) {
+      if (u.dead || !isMine(u)) continue;
+      if (u.def.veh && !u.def.fly) u.headlight = G.night;
+      else u.flash = G.night;                                   // foot troops + helicopter spotlights
+    }
   }
   if (!(typeof NP !== 'undefined' && NP.on && !NP.host)) {   // in co-op only the host spawns the shared horde; clients receive it over the wire
     if (!G.waveQueue) {
@@ -5579,24 +5587,27 @@ function startWave() {
   G.wave++; G.peace = false;
   const w = G.wave;
   if (G.mode === 'invaders') return startInvaderWave(w);
-  const budget = 6 + w * 3.4 + (G.night ? w * 1.4 : 0);
+  // every wave sends roughly 50 zombies; every 15th wave is a full horde — several times the size, heavy on specials
+  const horde = w % 15 === 0;
+  const count = horde ? 150 + w * 3 : 48 + Math.min(22, (w / 2) | 0) + (G.night ? 6 : 0);
+  // weighted type table (weights are relative spawn chances, scaled up in a horde for the nastier types)
+  const opts = [['walker', 60]];
+  if (w >= 2) opts.push(['runner', 32]);
+  if (w >= 4) opts.push(['spitter', horde ? 20 : 12]);
+  if (w >= 5) opts.push(['bloater', horde ? 16 : 9]);
+  if (w >= 6) opts.push(['brute', horde ? 14 : 5]);
+  let wsum = 0; for (const o of opts) wsum += o[1];
   const list = [];
-  let b = budget;
-  const opts = [['walker', 1]];
-  if (w >= 2) opts.push(['runner', 1.3]);
-  if (w >= 4) opts.push(['spitter', 2.2]);
-  if (w >= 5) opts.push(['bloater', 3]);
-  if (w >= 6) opts.push(['brute', 7]);
-  while (b > 0) {
-    const o = opts[(Math.random() * opts.length) | 0];
-    if (o[1] > b && list.length) break;
-    list.push(o[0]); b -= o[1];
-    if (list.length > 340) break;
+  for (let i = 0; i < count && list.length < 400; i++) {
+    let r = Math.random() * wsum;
+    for (const o of opts) { r -= o[1]; if (r <= 0) { list.push(o[0]); break; } }
   }
-  G.waveQueue = { list, t: 0, gap: clamp(1.6 / Math.sqrt(list.length), .04, .3) };
-  G.waveT = clamp(70 - w * 1.1, 34, 70);
-  alertMsg('WAVE ' + w + ' — ' + list.length + ' contacts converging on the base', '');
-  AU.ui('alarm');
+  // every column brings a few levy builders to raise camps in the field
+  const nw = Math.min(6, 1 + ((w / 4) | 0)); for (let i = 0; i < nw; i++) list.push('worker');
+  G.waveQueue = { list, t: 0, gap: clamp((horde ? 1.1 : 1.6) / Math.sqrt(list.length), .03, .3) };
+  G.waveT = horde ? clamp(96 - w * .6, 66, 96) : clamp(70 - w * 1.1, 34, 70);
+  if (horde) { alertMsg('⚠ HORDE — WAVE ' + w + ': ' + list.length + ' converging on the base', 'bad'); AU.ui('alarm'); }
+  else { alertMsg('WAVE ' + w + ' — ' + list.length + ' contacts converging on the base', ''); AU.ui('alarm'); }
 }
 
 /* wave contacts arrive from every direction now: most close on the base,
@@ -6186,7 +6197,11 @@ function muzzleFor(u, i, w) {
   const a = u.aims[i];
   // aircraft guns leave the drawn nose; ground guns from the barrel offset
   const off = w.off || (u.def.fly && AMUZ[u.def.spr] ? AMUZ[u.def.spr] : (u.def.veh ? u.r + 12 : u.r + 11));
-  return { x: bx + Math.cos(a) * off, y: by + Math.sin(a) * off, a };
+  // barrel height: each vehicle weapon leaves at the height of its own barrel on the drawn model
+  let z = 0;
+  if (u.def.fly) z = airZ(u);
+  else if (u.def.veh) { const vm = VMUZ[u.def.spr]; if (vm) z = (w.mz !== undefined ? w.mz : vm[1]) * (u.r / .9) * vm[2]; }
+  return { x: bx + Math.cos(a) * off, y: by + Math.sin(a) * off, a, z };
 }
 
 function updateWeapons(u, dt, order) {
@@ -6572,6 +6587,21 @@ function updateBuildings(dt) {
 
     /* --- emplacement fire --- */
     const w = b.def.wep;
+    if (w && w.dual) {
+      // sniper tower: two marksmen, each on its own cooldown, engaging two SEPARATE targets at once
+      b.cd -= dt; b.cd2 = (b.cd2 === undefined ? rnd(0, .4) : b.cd2) - dt;
+      if (b.reloadT > 0) { b.reloadT -= dt; if (b.reloadT <= 0) b.ammo = w.mag || 0; }
+      const lv = bLvl(b);
+      let rng = w.rng * rngMul(b) * (1 + .12 * (b.tier - 1));
+      const t1 = findEnemy(b.x, b.y, rng, w.minRng);
+      const t2 = t1 ? findEnemyExcept(b.x, b.y, rng, w.minRng, [t1]) : null;
+      b.aimA = t1 ? angTo(b.x, b.y, t1.x, t1.y) : (b.aimA || 0);
+      b.aimB = t2 ? angTo(b.x, b.y, t2.x, t2.y) : b.aimA;
+      const shoot = (tt, aim) => fire({ x: b.x, y: b.y, ang: aim, aimT: aim, r: Math.max(b.w, b.h) * TS * .4, def: { wep: w, nightSight: true }, ammo: b.ammo, vx: 0, vy: 0, bDmg: lv, tier: b.tier }, tt, w);
+      if (t1 && b.cd <= 0 && b.reloadT <= 0) { if (w.mag && b.ammo <= 0) { b.reloadT = w.reload; AU.reload(b.x, b.y, w.sfx); } else { shoot(t1, b.aimA); if (w.mag) b.ammo--; b.cd = w.cd; } }
+      if (t2 && b.cd2 <= 0 && b.reloadT <= 0) { if (!(w.mag && b.ammo <= 0)) { shoot(t2, b.aimB); if (w.mag) b.ammo--; b.cd2 = w.cd; } }
+      continue;
+    }
     if (w) {
       b.cd -= dt;
       if (b.reloadT > 0) { b.reloadT -= dt; if (b.reloadT <= 0) b.ammo = w.mag || 0; }
@@ -9811,7 +9841,24 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       CRW[i] = Math.min(1, CRW[i] + Math.max(0, 1.25 - d) * 1.2);
     }
     const SEG = CT3 * RES;
-    for (let cy2 = Math.floor((vy0 - 1) / SEG); cy2 <= Math.floor((vy1 + 1) / SEG); cy2++) for (let cx2 = Math.floor((vx0 - 1) / SEG); cx2 <= Math.floor((vx1 + 1) / SEG); cx2++) dropChunk(cx2, cy2);
+    for (let cy2 = Math.floor((vy0 - 1) / SEG); cy2 <= Math.floor((vy1 + 1) / SEG); cy2++) for (let cx2 = Math.floor((vx0 - 1) / SEG); cx2 <= Math.floor((vx1 + 1) / SEG); cx2++) { dropChunk(cx2, cy2); cratHeal.set(cy2 * 4096 + cx2, G.t); }   // remember this chunk was cratered, and when
+  }
+  /* craters regrow: every cratered chunk eases its dug ground back to flat and is fully restored ~2 minutes after its last blast */
+  const cratHeal = new Map();
+  let healAcc = 0;
+  const HEAL_STEP = 3, HEAL_LIFE = 120, HEAL_K = Math.pow(0.03, HEAL_STEP / HEAL_LIFE);   // multiply per step so a crater is ~flat after HEAL_LIFE seconds
+  function healCraters(dt) {
+    if (!CRAT || !cratHeal.size) return;
+    healAcc += dt; if (healAcc < HEAL_STEP) return; healAcc = 0;
+    const SEG = CT3 * RES;
+    for (const [key, t0] of cratHeal) {
+      const cx2 = key % 4096, cy2 = (key / 4096) | 0, age = G.t - t0;
+      const done = age > HEAL_LIFE;
+      const vx0 = cx2 * SEG, vy0 = cy2 * SEG, vx1 = Math.min(VW - 1, vx0 + SEG), vy1 = Math.min(VH - 1, vy0 + SEG);
+      for (let vy = Math.max(0, vy0); vy <= vy1; vy++) for (let vx = Math.max(0, vx0); vx <= vx1; vx++) { const i = vIdx(vx, vy); if (done) { CRAT[i] = 0; CRW[i] = 0; } else { CRAT[i] *= HEAL_K; CRW[i] *= HEAL_K; } }
+      dropChunk(cx2, cy2);
+      if (done) cratHeal.delete(key);
+    }
   }
   let mapStamp = null, structStamp = null;
   function resetWorld() { for (const m of chunks3.values()) { scene3.remove(m); m.geometry.dispose(); } chunks3.clear(); for (const s of structMeshes.values()) scene3.remove(s); structMeshes.clear(); for (const s of buildMeshes.values()) scene3.remove(s.g); buildMeshes.clear(); for (const s of unitMeshes.values()) scene3.remove(s.g); unitMeshes.clear(); for (const s of wreckMeshes.values()) scene3.remove(s); wreckMeshes.clear(); for (const s of ebMeshes.values()) scene3.remove(s); ebMeshes.clear(); CRAT = null; CRW = null; decalList.length = 0; }
@@ -10518,6 +10565,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
   const gunOf = t => t === 'sniper' || t === 'marksman' ? 'long' : 'rifle';
   render = function () {
     if (mapStamp !== MAP.t || structStamp !== MAP.structs) { resetWorld(); mapStamp = MAP.t; structStamp = MAP.structs; lastPX = 1e9; }
+    { const _n = performance.now() / 1000; const _d = render._t ? Math.min(.1, _n - render._t) : 0; render._t = _n; if (G.started && !G.paused && G.speed > 0) healCraters(_d); }
     SHX = G.shake ? rnd(-G.shake, G.shake) : 0; SHY = G.shake ? rnd(-G.shake, G.shake) : 0;
     updateSun();
     CAM.vw = scene.width / CAM.zoom; CAM.vh = scene.height / (CAM.zoom * VY);
@@ -10596,6 +10644,14 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
             drawFigure(ux, fy, uz, u.aimT !== undefined ? u.aimT : -HPI, 0, S, { kind: 'mil', gun: gunOf(u.t), scale: .92, limbs: u.limbs, id: u.id, ut: u.t }); }
         }
       }
+      if (b.t === 'tower' && b.done) {                                           // watchtower: two marksmen on the platform, each covering a separate target
+        const bs = g.userData.bs || 1, M = MODEL.marksman || MODEL.rifleman, S = M ? M.S : {};
+        const py = g.position.y + (b.def.hgt || 96) * K * bs;                    // platform deck height
+        const posA = [-.42 * bs, -.42 * bs], posB = [.42 * bs, .42 * bs];
+        const aimA = b.aimA !== undefined ? b.aimA : (b.ang || 0), aimB = b.aimB !== undefined ? b.aimB : (b.ang || 0);
+        drawFigure(g.position.x + posA[0], py, g.position.z + posA[1], aimA, 0, S, { kind: 'mil', gun: 'long', scale: .9, limbs: 15, id: b.id + 1, ut: 'marksman' });
+        drawFigure(g.position.x + posB[0], py, g.position.z + posB[1], aimB, 0, S, { kind: 'mil', gun: 'long', scale: .9, limbs: 15, id: b.id + 2, ut: 'marksman' });
+      }
       if (g.userData.range && b.done) {                                          // research lab: five technicians test-fire on the range north of the building, each on their own rhythm
         const R = g.userData.range, sy = g.position.y, bs = g.userData.bs || 1, M = MODEL.marksman || MODEL.rifleman; const S = M ? M.S : {};
         const LN = R.lane * bs;
@@ -10617,7 +10673,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
       const vis = u.x > vx0 && u.x < vx1 && u.y > vy0 && u.y < vy1; const d = u.def, x = u.x * K, z = u.y * K, gy = groundY(u.x, u.y);
       if (d.veh) {
         let um = unitMeshes.get(u.id); const ut = tierOf(u); if (um && (um.tier || 1) !== ut) { scene3.remove(um.g); unitMeshes.delete(u.id); um = null; }
-        if (!um) { um = mkVehicle(d.spr, ut); um.g.scale.setScalar(d.fly ? (AIRSC[d.spr] || 1.45) : (u.r * K) / .9 * (d.spr === 'abrams' ? 1.68 : d.spr === 'stryker' ? 1.2 : d.spr === 'humvee' ? 2.0 : 1)); scene3.add(um.g); unitMeshes.set(u.id, um); }   // aircraft drawn at 3x
+        if (!um) { um = mkVehicle(d.spr, ut); um.g.scale.setScalar(d.fly ? (AIRSC[d.spr] || 1.45) : (u.r * K) / .9 * (d.spr === 'abrams' ? 1.68 : d.spr === 'stryker' ? 1.92 : d.spr === 'humvee' ? 2.0 : 1)); scene3.add(um.g); unitMeshes.set(u.id, um); }   // aircraft drawn at 3x
         um.g.visible = vis; if (!vis) continue;
         const alt = d.fly ? (d.alt || 150) * K * ALTK * (u.altK === undefined ? 1 : u.altK) + (d.fly && u.altK !== undefined && u.altK < .02 ? .05 : 0) : 0; um.g.position.set(x, gy + alt, z);
         if (d.fly) { um.g.rotation.set(0, -u.ang, Math.sin(G.t * 2 + u.id) * .03); if (um.rotor) { um.rotor.rotation.z = (u.rot || G.t * 40); um.rotor.visible = !(u.landed && !u.order); } if (um.props) for (const pr of um.props) pr.rotation.x = G.t * 60; const asc = AIRSC[d.spr] || 1.45; put(P.shadow, x, gy + .03, z, -HPI, -u.ang, 0, asc * (d.spr === 'ac130' ? 1.3 : .9), asc * (d.spr === 'ac130' ? 1.5 : .55), 1, AIRSHADOW); }
