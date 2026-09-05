@@ -10823,13 +10823,22 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     /* ---- bullets ---- */
     for (const b of G.bullets) {
       if (b.x < vx0 || b.x > vx1 || b.y < vy0 || b.y > vy1) continue;
-      const x = b.x * K, z = b.y * K, y = groundY(b.x, b.y) + (b.z || 8) * K;
+      // ride a straight line from the muzzle: reference the ground where the round was fired, not the terrain it flies over,
+      // so the tracer doesn't hop up and down (bounce) with every bump in the ground beneath it.
+      if (b._gy === undefined) b._gy = groundY(b.x, b.y);
+      const x = b.x * K, z = b.y * K, y = b._gy + (b.z || 8) * K;
       if (b.kind === 'mortar') { bb(partsAdd, x, y, z, .18, 1, .9, .7, .9); continue; }
-      const a = Math.atan2(b.vy, b.vx), len = b.pierce ? 1.6 : b.kind === 'shell' ? .7 : b.kind === 'rocket' ? .4 : b.kind === 'arrow' ? .5 : .8;
-      // tilt the tracer to the shot's true vertical angle so a round fired from a tower or aircraft streaks down toward its target
+      const a = Math.atan2(b.vy, b.vx);
+      // short tracer streaks — 15% of the old length (arrows keep their real shaft)
+      const len = (b.pierce ? 1.6 : b.kind === 'shell' ? .7 : b.kind === 'rocket' ? .4 : .8) * .15;
       const hs = Math.hypot(b.vx, b.vy) || 1, pit = (b.drop || b.fly) ? Math.atan2((b.zSlope || 0) * hs, hs) : 0;
       if (b.kind === 'arrow') put(P.cyl, x, y, z, 0, -a, HPI + pit, .012, .55, .012, WOOD);
-      else put(P.tracer, x, y, z, 0, -a, pit, len, .035, .035);
+      else {
+        put(P.tracer, x, y, z, 0, -a, pit, len, .035, .035);
+        // a small glowing head on every tracer — bright in the dark, so fire reads as flashes streaking out (pew pew)
+        const dk = .45 + (1 - dayNow) * 1.0;
+        bb(partsAdd, x, y, z, (.10 + len * .12) * dk, 1, .88, .55, .85 * dk);
+      }
       if (b.kind === 'rocket') bb(partsAdd, x, y, z, .35, 1, .75, .4, .9);
       if (b.kind === 'acid') bb(partsAdd, x, y, z, .28, .6, .95, .25, .9);
     }
@@ -10875,7 +10884,7 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
     for (const u of G.units) if (!u.dead && !u.inside && u.hp < u.maxHp && u.x > vx0 && u.x < vx1 && u.y > vy0 && u.y < vy1) bar(u.x, u.y, groundY(u.x, u.y) + (u.def.fly ? (u.def.alt || 150) * K * ALTK : 0) + u.r * K * 2.4, 22, u.hp / u.maxHp, '#4de08c');
     // multiplayer: a small team-colour pip above every unit so you can read who owns what at a glance
     if (G.mp) for (const u of G.units) { if (u.dead || u.inside || u.x < vx0 || u.x > vx1 || u.y < vy0 || u.y > vy1) continue; const sc2 = toScreen(u.x, u.y, groundY(u.x, u.y) + (u.def.fly ? (u.def.alt || 150) * K * ALTK : 0) + u.r * K * (u.def.veh ? 3.0 : 2.9)); if (sc2[2] > 1) continue; const col = (TEAM_COL[plyOf(u).team]) || '#8dffbe'; ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.beginPath(); ctx.moveTo(sc2[0], sc2[1] + 1); ctx.lineTo(sc2[0] - 4, sc2[1] - 6); ctx.lineTo(sc2[0] + 4, sc2[1] - 6); ctx.closePath(); ctx.fill(); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(sc2[0], sc2[1]); ctx.lineTo(sc2[0] - 3.2, sc2[1] - 5.2); ctx.lineTo(sc2[0] + 3.2, sc2[1] - 5.2); ctx.closePath(); ctx.fill(); }
-    let hb = 0; for (const zz of G.zeds) { if (zz.dead || zz.def.struct || zz.hp >= zz.maxHp || zz.x < vx0 || zz.x > vx1 || zz.y < vy0 || zz.y > vy1) continue; if (hb++ > 260) break; const bh = groundY(zz.x, zz.y) + zz.r * K * 2.1 + .55, bw = zz.def.big ? 26 : zz.def.special ? 20 : 15, bf = clamp(zz.hp / zz.maxHp, 0, 1); bar(zz.x, zz.y, bh, bw, bf, zz.def.special ? '#c05adf' : zz.med ? '#ff9a5a' : '#d24545'); }
+    /* enemy health bars are hidden — you read a zombie's state from its wounds and dismemberment, not a bar */
     for (const b of G.builds) if (!b.dead && b.hp < b.maxHp && b.x > vx0 && b.x < vx1 && b.y > vy0 && b.y < vy1) bar(b.x, b.y, groundY(b.x, b.y) + (b.def.hgt || 30) * K + .3, 30, b.hp / b.maxHp, '#4de08c');
     ctx.font = 'bold 12px ui-monospace,monospace'; ctx.textAlign = 'center';
     for (const t of G.texts) { const s = toScreen(t.x, t.y, groundY(t.x, t.y) + 1.2); ctx.globalAlpha = Math.min(1, t.life / .4); ctx.fillStyle = 'rgba(0,0,0,.75)'; ctx.fillText(t.txt, s[0] + 1, s[1] + 1); ctx.fillStyle = t.col; ctx.fillText(t.txt, s[0], s[1]); }
