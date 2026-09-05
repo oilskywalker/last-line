@@ -6001,7 +6001,7 @@ function updateJet(u, dt) {
   const spd = u.spd;
   const rng = u.def.wep.rng * rngMul(u);
   const turnRate = spd / (u.def.turnR || 240);      // limited turn -> wide U-turn
-  const zc = (u.def.alt || 300) * VY;
+  const zc = airZ(u);                                // effect height = the model's drawn altitude
 
   /* ---- decide the aim point & whether we have a target ---- */
   let tgt = (o && o.type === 'attack' && o.target && !o.target.dead) ? o.target : null;
@@ -6033,17 +6033,20 @@ function updateJet(u, dt) {
   u.y = clamp(u.y + u.vy * dt, 8, WH - 8);
   u.rot = 0;
 
-  /* ---- afterburner: blue flame + smoke out the tail, plus a thruster glow ---- */
-  const ex = u.x - Math.cos(u.ang) * u.r * .95, ey = u.y - Math.sin(u.ang) * u.r * .95;
-  if (Math.random() < dt * 120) {
-    part('fire', ex, ey, -Math.cos(u.ang) * 70 + rnd(-12, 12), -Math.sin(u.ang) * 70 + rnd(-12, 12), rnd(.10, .2), rnd(3, 5.5), '#9fd8ff', { z: zc, glow: 1, grow: -7 });
-    part('smoke', ex, ey, -Math.cos(u.ang) * 34, -Math.sin(u.ang) * 34, rnd(.4, .8), rnd(3, 6), 'rgba(150,158,168,1)', { z: zc, a: .3, grow: 12, drag: .9 });
+  /* ---- afterburner: a tight blue flame beam straight out of the tail nozzle, at the model's height ---- */
+  const noz = AEXH.f16 || (u.r * .95);
+  const ca = Math.cos(u.ang), sa = Math.sin(u.ang), ex = u.x - ca * noz, ey = u.y - sa * noz;
+  const perp = 3;   // keep the plume narrow so it reads as a straight jet beam, not a spray
+  for (let k = 0; k < 3; k++) {   // a short dense cone that shoots straight back along the exhaust axis
+    const jx = rnd(-perp, perp), lx = -sa * jx, ly = ca * jx;   // tiny lateral jitter perpendicular to the nozzle
+    part('fire', ex + lx, ey + ly, -ca * (150 + rnd(-10, 30)), -sa * (150 + rnd(-10, 30)), rnd(.12, .22), rnd(2.4, 4.2), k === 0 ? '#ffffff' : '#9fd8ff', { z: zc, glow: 1, grow: -6 });
   }
-  G.lights.push({ x: ex, y: ey, r: 64, c: [150, 200, 255], i: .85 });
+  if (Math.random() < dt * 80) part('smoke', ex, ey, -ca * 40, -sa * 40, rnd(.4, .8), rnd(2.5, 5), 'rgba(150,158,168,1)', { z: zc, a: .28, grow: 12, drag: .9 });
+  G.lights.push({ x: ex, y: ey, r: 70, c: [150, 200, 255], i: .9 });
 
-  /* ---- nose-mounted weapons: fire only when the target is ahead & in range ---- */
+  /* ---- nose-mounted weapons: fire only when the target is ahead & in range (round leaves the model's nose) ---- */
   const ws = u.def.allWeps;
-  const nose = u.r * 1.05;
+  const nose = AMUZ[u.def.spr] || (u.r * 1.05);
   const muz = { x: u.x + Math.cos(u.ang) * nose, y: u.y + Math.sin(u.ang) * nose, a: u.ang };
   const haveT = tgt && !tgt.dead;
   let off = 9, d2 = 0;
@@ -6108,7 +6111,8 @@ function muzzleFor(u, i, w) {
     by += Math.sin(hull) * w.mount[0] + Math.cos(hull) * w.mount[1];
   }
   const a = u.aims[i];
-  const off = w.off || (u.def.veh ? u.r + 12 : u.r + 11);
+  // aircraft guns leave the drawn nose; ground guns from the barrel offset
+  const off = w.off || (u.def.fly && AMUZ[u.def.spr] ? AMUZ[u.def.spr] : (u.def.veh ? u.r + 12 : u.r + 11));
   return { x: bx + Math.cos(a) * off, y: by + Math.sin(a) * off, a };
 }
 
@@ -6176,6 +6180,11 @@ function tryFire(u, tgt, dt) {
 
 /* vehicle bores in 3D-model units [tip x, height y, model scale multiplier] — the muzzle effect and the round leave the drawn barrel, not the hull centre */
 const VMUZ = { abrams: [2.85, 1.06, 1.68], stryker: [1.875, 1.46, 1.2], humvee: [.75, 1.18, 2.0] };
+/* aircraft gun muzzles: how far forward (px) the round leaves the nose of the drawn model, and the tail nozzle offset (px) for the jet's afterburner */
+const AMUZ = { littlebird: 30, blackhawk: 60, apache: 58, f16: 36, ac130: 22 };
+const AEXH = { f16: 74, ac130: 60 };
+const AIR_ZK = 0.42;                    // matches the 3D renderer's ALTK: an aircraft is drawn at alt*ALTK*altK tiles up
+function airZ(u) { return (u.def.alt || 150) * AIR_ZK * (u.altK === undefined ? 1 : u.altK); }   // muzzle/effect height in the b.z (tiles) space
 function muzzlePos(u) {
   const a = u.def.veh ? u.aimT : u.ang;
   const vm = u.def.veh && VMUZ[u.def.spr];
@@ -6187,9 +6196,9 @@ function muzzlePos(u) {
 function fire(src, tgt, wep, muz) {
   const m = muz || muzzlePos(src);
   if (typeof npRecordShot === 'function') npRecordShot(src, tgt, wep, m);   // co-op: let allies see this shot
-  // fire out of the airframe, not the ground shadow: the aircraft is drawn at
-  // screen height alt*VY (see drawAircraft), so muzzle/tracers must start there.
-  const srcZ = (src.def && src.def.fly) ? (src.def.alt || 150) * VY : (m.z || 0);
+  // fire out of the airframe, not the ground shadow: the aircraft is drawn at height alt*ALTK*altK tiles up,
+  // so the round (and tracer) must start at that same height, matching the model exactly.
+  const srcZ = (src.def && src.def.fly) ? airZ(src) : (m.z || 0);
   const tier = src.tier || (src.t ? tierOf(src) : 1);
   const bd = src.bDmg || 1;
 
@@ -8713,6 +8722,33 @@ function boxSelect(x0, y0, x1, y1, add) {
   if (add) addSel(hits); else setSel(hits);
 }
 
+/* ---------------- formations ----------------
+   Local slot offsets are [forward, lateral] in tiles-of-px: +forward = the way the group is travelling, +lateral = its
+   right. issueOrder turns them to face the destination. */
+const FORM = {
+  free:   { n: 'Free',          g: '▦' },
+  row:    { n: 'Row',           g: '▬' },
+  column: { n: 'Column',        g: '▮' },
+  drow:   { n: 'Double Row',    g: '☰' },
+  dcol:   { n: 'Double Column', g: '‖' },
+  v:      { n: 'V',             g: 'V' },
+  arrow:  { n: 'Arrow',         g: '➤' },
+  circle: { n: 'Circle',        g: '◯' }
+};
+const FORM_ORDER = ['free', 'row', 'column', 'drow', 'dcol', 'v', 'arrow', 'circle'];
+function formationOffsets(shape, n, sp) {
+  const out = [];
+  if (shape === 'row') { for (let i = 0; i < n; i++) out.push([0, (i - (n - 1) / 2) * sp]); }                       // line abreast, across the travel direction
+  else if (shape === 'column') { for (let i = 0; i < n; i++) out.push([((n - 1) / 2 - i) * sp, 0]); }              // single file, leader in front
+  else if (shape === 'drow') { const cols = Math.ceil(n / 2); for (let i = 0; i < n; i++) { const rank = i % 2, file = (i / 2) | 0; out.push([-rank * sp, (file - (cols - 1) / 2) * sp]); } }
+  else if (shape === 'dcol') { const rows = Math.ceil(n / 2); for (let i = 0; i < n; i++) { const col = i % 2, row = (i / 2) | 0; out.push([((rows - 1) / 2 - row) * sp, (col - .5) * sp]); } }
+  else if (shape === 'v') { out.push([0, 0]); for (let i = 1; i < n; i++) { const k = Math.ceil(i / 2), side = (i % 2) ? 1 : -1; out.push([k * sp * .82, side * k * sp]); } }        // apex at the back, arms open forward
+  else if (shape === 'arrow') { out.push([0, 0]); for (let i = 1; i < n; i++) { const k = Math.ceil(i / 2), side = (i % 2) ? 1 : -1; out.push([-k * sp * .82, side * k * sp]); } }    // apex forward (wedge)
+  else if (shape === 'circle') { const R = Math.max(sp, sp * n / (2 * Math.PI)); for (let i = 0; i < n; i++) { const a = i / n * TAU; out.push([Math.cos(a) * R, Math.sin(a) * R]); } }
+  else { const cols = Math.ceil(Math.sqrt(n)); for (let i = 0; i < n; i++) out.push([((cols - 1) / 2 - (i / cols | 0)) * sp, ((i % cols) - (cols - 1) / 2) * sp]); }
+  return out;
+}
+
 /* ---------------- orders ---------------- */
 function issueOrder(wx, wy, shift, fast) {
   const units = G.sel.filter(e => e.kind === 'unit');
@@ -8769,20 +8805,33 @@ function issueOrder(wx, wy, shift, fast) {
     }
   }
   if (!done) {
-    const n = units.length;
-    if (UI.keepForm && n > 1) {
-      // keep formation: every unit heads for the spot that preserves its current offset from the group's centre, and the group moves at its slowest member's pace
+    const n = units.length, shape = UI.formation || 'free';
+    if (shape !== 'free' && n > 1) {
+      // a real formation: units take assigned slots relative to the destination, the whole shape turned to face the
+      // direction of travel, and the group moves at its slowest member's pace so it holds together.
       let cx = 0, cy = 0, minS = 1e9; for (const u of units) { cx += u.x; cy += u.y; minS = Math.min(minS, u.spd); } cx /= n; cy /= n;
-      for (const u of units) u.order = { type: UI.attackMove ? 'amove' : 'move', x: clamp(wx + (u.x - cx), 10, WW - 10), y: clamp(wy + (u.y - cy), 10, WH - 10), fast: !!fast, capSpd: minS };
+      const fa = Math.atan2(wy - cy, wx - cx), cf = Math.cos(fa), sf = Math.sin(fa);
+      const off = formationOffsets(shape, n, 30);
+      // assign each unit to the nearest slot (in world space) so they don't cross over each other
+      const slots = off.map(o => ({ x: wx + o[0] * cf - o[1] * sf, y: wy + o[0] * sf + o[1] * cf }));
+      const used = new Array(slots.length).fill(false);
+      const ordered = units.map(u => u).sort((a, b) => (a.x - cx) * cf + (a.y - cy) * sf - ((b.x - cx) * cf + (b.y - cy) * sf));
+      for (const u of ordered) {
+        let bi = -1, bd = 1e18;
+        for (let i = 0; i < slots.length; i++) { if (used[i]) continue; const dd = dist2(u.x, u.y, slots[i].x, slots[i].y); if (dd < bd) { bd = dd; bi = i; } }
+        used[bi] = true; const s = slots[bi];
+        u.order = { type: UI.attackMove ? 'amove' : 'move', x: clamp(s.x, 10, WW - 10), y: clamp(s.y, 10, WH - 10), fast: !!fast, capSpd: minS };
+      }
     } else {
-      // formation spread
+      // free grid spread
       const cols = Math.ceil(Math.sqrt(n)), sp = 26;
       units.forEach((u, i) => {
         const ox = ((i % cols) - (cols - 1) / 2) * sp, oy = ((i / cols | 0) - (Math.ceil(n / cols) - 1) / 2) * sp;
         u.order = { type: UI.attackMove ? 'amove' : 'move', x: clamp(wx + ox, 10, WW - 10), y: clamp(wy + oy, 10, WH - 10), fast: !!fast };
       });
     }
-    popText(wx, wy - 10, fast ? 'SPRINT' : UI.attackMove ? 'ATTACK-MOVE' : (UI.keepForm && n > 1 ? 'FORMATION' : 'MOVE'), fast ? '#ffd24a' : UI.attackMove ? '#ff8a6a' : '#7dffb2');
+    const fn = (FORM[shape] || FORM.free).n;
+    popText(wx, wy - 10, fast ? 'SPRINT' : UI.attackMove ? 'ATTACK-MOVE' : (shape !== 'free' && n > 1 ? fn.toUpperCase() : 'MOVE'), fast ? '#ffd24a' : UI.attackMove ? '#ff8a6a' : '#7dffb2');
     part('ring', wx, wy, 0, 0, .45, 6, fast ? '#ffd24a' : UI.attackMove ? '#ff8a6a' : '#7dffb2', { grow: fast ? 90 : 60, glow: 1 });
   }
   UI.attackMove = false;
@@ -9070,14 +9119,19 @@ function cardFor() {
       }
     }
     {
-      // group movement: keep formation (units hold their relative positions and move at the slowest member's speed) + movement pace
+      // group movement: formation SHAPE (cycles) + movement pace
+      const fm = FORM[UI.formation] || FORM.free;
+      btns.push({ g: fm.g, n: fm.n, k: 'N', tip: 'Formation shape (cycles): Free grid · Row (line abreast) · Column (single file) · Double Row · Double Column · V · Arrow (wedge) · Circle.\nA shape keeps the group together, oriented to the direction of travel, moving at its slowest member\'s pace.', fn: () => { UI.formation = FORM_ORDER[(FORM_ORDER.indexOf(UI.formation || 'free') + 1) % FORM_ORDER.length]; AU.ui('ok'); refreshCard(true); } });
       const pc = units[0].pace || 'normal', P = PACE[pc];
-      btns.push({ g: '⿻', n: 'Formation', k: 'N', act: !!UI.keepForm, tip: 'Keep formation: on a move order every unit keeps its place relative to the group and the group moves at its slowest member\'s pace.', fn: () => { UI.keepForm = !UI.keepForm; AU.ui('ok'); refreshCard(true); } });
       btns.push({ g: pc === 'slow' ? '🚶' : pc === 'normal' ? '🥾' : pc === 'fast' ? '🏃' : '⚡', n: P.n, k: 'J', badge: '×' + P.m.toFixed(2), tip: 'Movement pace (cycles): Slow-walk moves at 55% but shoots much tighter · Normal · Fast (130%, wider spread) · Double-time (170%, very wide spread while moving).', fn: () => { const nx = PACE_ORDER[(PACE_ORDER.indexOf(pc) + 1) % PACE_ORDER.length]; for (const u of units) u.pace = nx; AU.ui('ok'); refreshCard(true); } });
     }
     if (units.some(u => u.def.veh && !u.def.fly)) {
       const veh = units.filter(u => u.def.veh && !u.def.fly), on = veh.every(u => u.headlight);
       btns.push({ g: '🔦', n: on ? 'Lights On' : 'Headlights', k: 'L', act: on, tip: 'Toggle the headlights: a beam of light ahead of the hull that lights the ground at night (and tells the horde where you are).', fn: () => { const v = !on; for (const u of veh) u.headlight = v; AU.ui('ok'); refreshCard(true); } });
+    }
+    if (units.some(u => !u.def.veh)) {
+      const foot = units.filter(u => !u.def.veh), on = foot.every(u => u.flash);
+      btns.push({ g: '🔦', n: on ? 'Light On' : 'Flashlight', k: 'I', act: on, tip: 'Toggle each trooper\'s flashlight: a beam that lights the ground ahead at night — handy to see, but it shows the horde where you are.', fn: () => { const v = !on; for (const u of foot) u.flash = v; AU.ui('ok'); refreshCard(true); } });
     }
     if (units.some(u => u.inside)) btns.push({ g: '🚪', n: 'Exit', k: 'U', tip: 'Leave the culvert.', fn: () => { for (const u of units) if (u.inside) unloadOne(u); } });
     return btns;
@@ -10497,6 +10551,12 @@ cv.addEventListener('mouseleave', () => { IN.hasMouse = false; });
           drawFigure(x, ry, z, u.ang, 0, S, { kind: 'mil', gun: 'none', scale: .92, limbs: u.limbs, id: u.id, rope: 1, ut: u.t });
         } else
         drawFigure(x, gy, z, u.aimT !== undefined && u.def.veh ? u.aimT : u.ang, u.step || 0, S, { kind: 'mil', gun: gunOf(u.t), scale: .92, limbs: u.limbs, id: u.id, ut: u.t });
+        if (u.flash) {                                                          // shoulder flashlight: a narrow beam thrown on the ground ahead of the trooper
+          const fa = (u.aimT !== undefined ? u.aimT : u.ang), ca = Math.cos(fa), sa = Math.sin(fa), L = 5.5, dk = .45 + (1 - dayNow) * .55;
+          const bx2 = x + ca * .18, bz2 = z + sa * .18;
+          put(P.beam, bx2 + ca * L * .5, groundY((bx2 + ca * L * .5) / K, (bz2 + sa * L * .5) / K) + .05, bz2 + sa * L * .5, -HPI, -fa, 0, L, L * .4 * dk, 1, WHITE);
+          bb(partsAdd, x + ca * .25, gy + .5, z + sa * .25, .18 * dk, 1, .96, .82, .85);            // muzzle-lamp glow at the barrel
+        }
         if (u.sel) put(P.sel, x, gy + .04, z, -HPI, 0, 0, .5, .5, 1);
       }
     }
